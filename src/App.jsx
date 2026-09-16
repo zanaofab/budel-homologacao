@@ -577,28 +577,47 @@ function SupplierDashboard({ onLogout }) {
   );
 }
 
-function CompanyCard({ company, onClick }) {
+function CompanyCard({ company, onClick, onDelete }) {
+  async function handleDelete(e) {
+    e.stopPropagation();
+
+    const confirmed = window.confirm(
+      `Tem certeza que deseja excluir o CNPJ ${formatCnpj(company.cnpj)}?\n\nA empresa e toda a documentação cadastrada para ela serão excluídas.`
+    );
+
+    if (!confirmed) return;
+
+    await onDelete(company);
+  }
+
   return (
-    <button className="company-card" onClick={onClick}>
-      <div className="company-icon">
-        <Building2 size={25} />
-      </div>
+    <div className="company-card">
+      <button className="company-card-main" onClick={onClick}>
+        <div className="company-icon">
+          <Building2 size={25} />
+        </div>
 
-      <div className="company-content">
-        <h2>{company.legal_name}</h2>
+        <div className="company-content">
+          <h2>{company.legal_name}</h2>
 
-        <p>
-          CNPJ:{" "}
-          {formatCnpj(company.cnpj)}
-        </p>
+          <p>CNPJ: {formatCnpj(company.cnpj)}</p>
 
-        <span className="company-modality">
-          {company.modality || "Modalidade não informada"}
-        </span>
-      </div>
+          <span className="company-modality">
+            {company.modality || "Serviço não informado"}
+          </span>
+        </div>
 
-      <div className="company-arrow">›</div>
-    </button>
+        <div className="company-arrow">›</div>
+      </button>
+
+      <button
+        type="button"
+        className="delete-company-button"
+        onClick={handleDelete}
+      >
+        Excluir CNPJ
+      </button>
+    </div>
   );
 }
 
