@@ -12,7 +12,13 @@ import {
   Building2,
   CalendarDays,
   XCircle,
+  ShieldCheck,
+  ShieldX,
+  Eye,
+  Save,
+  FileSpreadsheet,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { supabase } from "./lib/supabase";
 import { documentTypes } from "./data/checklist";
 
@@ -20,7 +26,7 @@ const checklistUrl =
   "/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx";
 
 /*
-  Documentos que são obrigatórios e NÃO podem ser marcados
+  Documentos obrigatórios e que não podem ser marcados
   como "Não possuímos essa documentação".
 */
 const mandatoryDocuments = [
@@ -56,12 +62,6 @@ function daysUntil(date) {
   return Math.ceil((b - a) / 86400000);
 }
 
-/*
-  Verifica se o documento possui pelo menos um arquivo.
-
-  Mantemos file_path para compatibilidade com documentos
-  antigos que foram cadastrados antes da função de múltiplos arquivos.
-*/
 function hasDocumentFiles(doc) {
   if (!doc) return false;
 
@@ -105,6 +105,40 @@ function statusLabel(status) {
   return "Pendente";
 }
 
+function reviewLabel(status) {
+  if (status === "approved") return "Aprovado";
+  if (status === "rejected") return "Reprovado";
+  return "Em análise";
+}
+
+function ReviewBadge({ status }) {
+  const config = {
+    approved: {
+      icon: <CheckCircle2 size={15} />,
+      className: "status-ok",
+    },
+
+    rejected: {
+      icon: <XCircle size={15} />,
+      className: "status-danger",
+    },
+
+    pending: {
+      icon: <Clock3 size={15} />,
+      className: "status-warning",
+    },
+  };
+
+  const item = config[status] || config.pending;
+
+  return (
+    <span className={`status-badge ${item.className}`}>
+      {item.icon}
+      {reviewLabel(status)}
+    </span>
+  );
+}
+
 function StatusBadge({ status }) {
   const config = {
     ok: {
@@ -143,7 +177,14 @@ function StatusBadge({ status }) {
   );
 }
 
-function Header({ session, onLogout, onHome, onDownload }) {
+function Header({
+  session,
+  onLogout,
+  onHome,
+  onDownload,
+  isAdmin,
+  onAdmin,
+}) {
   return (
     <header className="site-header">
       <div className="header-inner">
@@ -152,6 +193,13 @@ function Header({ session, onLogout, onHome, onDownload }) {
         </button>
 
         <div className="header-actions">
+          {isAdmin && (
+            <button className="header-link" onClick={onAdmin}>
+              <ShieldCheck size={17} />
+              Administrativo
+            </button>
+          )}
+
           <button className="header-link" onClick={onDownload}>
             <Download size={17} />
             F103-04
@@ -229,6 +277,7 @@ function Home({ onLogin, onSignup, onDownload }) {
       <section className="download-box">
         <div>
           <h2>Checklist F103-04</h2>
+
           <p>
             Baixe o checklist original de inspeção de fornecedores da Budel.
           </p>
@@ -351,6 +400,7 @@ function AuthPage({ mode, setMode, onBack }) {
           </label>
 
           {error && <div className="alert error">{error}</div>}
+
           {message && <div className="alert success">{message}</div>}
 
           <button className="primary-button full-button" disabled={loading}>
@@ -507,6 +557,10 @@ function CompanyForm({ onCancel, onCreated }) {
   );
 }
 
+/* =========================================================
+   ÁREA DO FORNECEDOR
+   ========================================================= */
+
 function SupplierDashboard({ onLogout }) {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -613,6 +667,7 @@ function SupplierDashboard({ onLogout }) {
       <div className="dashboard-heading">
         <div>
           <span className="eyebrow">ÁREA DO FORNECEDOR</span>
+
           <h1>Meus CNPJs</h1>
 
           <p className="muted">
@@ -705,6 +760,10 @@ function CompanyCard({ company, onClick, onDelete }) {
   );
 }
 
+/* =========================================================
+   DOCUMENTOS DO FORNECEDOR
+   ========================================================= */
+
 function DocumentsPage({ company, onBack }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -768,9 +827,6 @@ function DocumentsPage({ company, onBack }) {
     };
   }, [documentMap]);
 
-  /*
-    Salva um ou vários arquivos para o mesmo tipo de documento.
-  */
   async function saveDocument(type, values) {
     setSaving((current) => ({
       ...current,
@@ -783,18 +839,10 @@ function DocumentsPage({ company, onBack }) {
     try {
       const existing = documentMap[type];
 
-      /*
-        Recupera os arquivos que já estavam salvos.
-      */
       let files = Array.isArray(existing?.files)
         ? [...existing.files]
         : [];
 
-      /*
-        Compatibilidade com documentos antigos:
-        se existe apenas file_path, transforma em um arquivo
-        dentro do novo formato.
-      */
       if (files.length === 0 && existing?.file_path) {
         files.push({
           path: existing.file_path,
@@ -802,9 +850,6 @@ function DocumentsPage({ company, onBack }) {
         });
       }
 
-      /*
-        Faz upload de cada novo arquivo selecionado.
-      */
       if (values.files?.length) {
         for (const file of values.files) {
           const extension =
@@ -831,10 +876,6 @@ function DocumentsPage({ company, onBack }) {
         }
       }
 
-      /*
-        O primeiro arquivo continua sendo colocado também
-        nos campos antigos para manter compatibilidade.
-      */
       const firstFile = files[0] || null;
 
       const payload = {
@@ -847,6 +888,10 @@ function DocumentsPage({ company, onBack }) {
         expiry_date: values.expiryDate || null,
         not_available: values.notAvailable,
         notes: null,
+        review_status: "pending",
+        admin_notes: null,
+        reviewed_at: null,
+        reviewed_by: null,
       };
 
       const { data, error: dbError } = await supabase
@@ -879,37 +924,17 @@ function DocumentsPage({ company, onBack }) {
     }
   }
 
-  /*
-    Verifica se todos os documentos necessários foram preenchidos.
-  */
   async function submitForApproval() {
     setError("");
     setMessage("");
 
-    /*
-      Documentos obrigatórios:
-      - Cartão CNPJ
-      - Checklist
-      - Fotos
-
-      Esses três precisam obrigatoriamente possuir pelo menos
-      um arquivo.
-    */
     const missing = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
 
       if (isMandatoryDocument(item.key)) {
-        return (
-          !hasDocumentFiles(doc) ||
-          doc?.not_available
-        );
+        return !hasDocumentFiles(doc) || doc?.not_available;
       }
 
-      /*
-        Para os demais documentos:
-        - se marcou "Não possuímos", está preenchido;
-        - caso contrário, precisa de pelo menos um arquivo.
-      */
       if (doc?.not_available) {
         return false;
       }
@@ -925,10 +950,6 @@ function DocumentsPage({ company, onBack }) {
       return;
     }
 
-    /*
-      Somente os documentos que possuem validade precisam
-      informar a data de validade.
-    */
     const withoutExpiry = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
 
@@ -951,9 +972,6 @@ function DocumentsPage({ company, onBack }) {
       return;
     }
 
-    /*
-      Documento vencido não pode ser enviado para homologação.
-    */
     const expired = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
 
@@ -994,9 +1012,6 @@ function DocumentsPage({ company, onBack }) {
     );
   }
 
-  /*
-    Abre todos os arquivos cadastrados naquele tipo de documento.
-  */
   async function openFiles(doc) {
     if (!doc) return;
 
@@ -1004,9 +1019,6 @@ function DocumentsPage({ company, onBack }) {
       ? doc.files
       : [];
 
-    /*
-      Compatibilidade com documentos antigos.
-    */
     if (files.length === 0 && doc.file_path) {
       files = [
         {
@@ -1175,9 +1187,6 @@ function DocumentCard({
 
   const mandatory = isMandatoryDocument(item.key);
 
-  /*
-    Quantidade de arquivos já cadastrados.
-  */
   const existingFilesCount = Array.isArray(document?.files)
     ? document.files.length
     : document?.file_path
@@ -1192,16 +1201,10 @@ function DocumentCard({
   }, [document]);
 
   function save() {
-    const hasExistingFile =
-      existingFilesCount > 0;
+    const hasExistingFile = existingFilesCount > 0;
 
-    const hasNewFile =
-      files.length > 0;
+    const hasNewFile = files.length > 0;
 
-    /*
-      CNPJ, checklist e fotos:
-      obrigatoriamente precisam de pelo menos um arquivo.
-    */
     if (mandatory) {
       if (!hasExistingFile && !hasNewFile) {
         alert(
@@ -1211,11 +1214,6 @@ function DocumentCard({
         return;
       }
     } else {
-      /*
-        Demais documentos:
-        precisam de arquivo OU podem ser marcados como
-        "Não possuímos essa documentação".
-      */
       if (
         !notAvailable &&
         !hasExistingFile &&
@@ -1229,10 +1227,6 @@ function DocumentCard({
       }
     }
 
-    /*
-      Somente documentos que possuem validade precisam
-      obrigatoriamente informar a data.
-    */
     if (
       !notAvailable &&
       item.expires &&
@@ -1429,35 +1423,1041 @@ function DocumentCard({
   );
 }
 
+/* =========================================================
+   ÁREA ADMINISTRATIVA / BUDEL
+   ========================================================= */
+
+function AdminDashboard({ onBack }) {
+  const [companies, setCompanies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedCompany, setSelectedCompany] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
+  async function loadCompanies() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("companies")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setCompanies(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadCompanies();
+  }, []);
+
+  async function exportToExcel() {
+    setExporting(true);
+    setError("");
+
+    try {
+      const { data: companiesData, error: companiesError } =
+        await supabase
+          .from("companies")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+      if (companiesError) {
+        throw companiesError;
+      }
+
+      const { data: documentsData, error: documentsError } =
+        await supabase
+          .from("documents")
+          .select("*");
+
+      if (documentsError) {
+        throw documentsError;
+      }
+
+      const rows = (companiesData || []).map((company) => {
+        const companyDocs = (documentsData || []).filter(
+          (doc) => doc.company_id === company.id
+        );
+
+        const row = {
+          "Razão Social": company.legal_name || "",
+          CNPJ: formatCnpj(company.cnpj || ""),
+          "Serviço/atividade": company.modality || "",
+          "Situação da homologação":
+            company.submission_status === "approved"
+              ? "Aprovada"
+              : company.submission_status === "rejected"
+              ? "Reprovada"
+              : company.submission_status === "submitted"
+              ? "Em análise"
+              : "Rascunho",
+          "Data do envio": company.submitted_at
+            ? new Date(company.submitted_at).toLocaleDateString(
+                "pt-BR"
+              )
+            : "",
+        };
+
+        documentTypes.forEach((item) => {
+          const doc = companyDocs.find(
+            (document) => document.type === item.key
+          );
+
+          const status = documentStatus(doc);
+
+          row[`${item.label} - Situação`] =
+            doc?.not_available
+              ? "Não possui"
+              : statusLabel(status);
+
+          row[`${item.label} - Análise`] =
+            reviewLabel(doc?.review_status);
+
+          row[`${item.label} - Validade`] =
+            doc?.expiry_date
+              ? new Date(
+                  `${doc.expiry_date}T00:00:00`
+                ).toLocaleDateString("pt-BR")
+              : "";
+
+          const files = Array.isArray(doc?.files)
+            ? doc.files
+            : doc?.file_path
+            ? [
+                {
+                  name:
+                    doc.original_name || "Documento",
+                },
+              ]
+            : [];
+
+          row[`${item.label} - Arquivos`] =
+            files.map((file) => file.name).join(" | ");
+
+          row[`${item.label} - Observação`] =
+            doc?.admin_notes || "";
+        });
+
+        return row;
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        "Homologações"
+      );
+
+      worksheet["!cols"] = [
+        { wch: 32 },
+        { wch: 20 },
+        { wch: 38 },
+        { wch: 20 },
+        { wch: 15 },
+      ];
+
+      XLSX.writeFile(
+        workbook,
+        `Relatorio_Homologacao_Budel_${today()}.xlsx`
+      );
+    } catch (err) {
+      setError(
+        err.message || "Não foi possível exportar o relatório."
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  if (selectedCompany) {
+    return (
+      <main className="page">
+        <AdminCompanyPage
+          company={selectedCompany}
+          onBack={() => {
+            setSelectedCompany(null);
+            loadCompanies();
+          }}
+        />
+      </main>
+    );
+  }
+
+  return (
+    <main className="page">
+      <div className="dashboard-heading">
+        <div>
+          <span className="eyebrow">ADMINISTRATIVO</span>
+
+          <h1>Homologação de Fornecedores</h1>
+
+          <p className="muted">
+            Visualize e analise todos os fornecedores cadastrados no portal.
+          </p>
+        </div>
+
+        <div className="header-actions">
+          <button
+            className="secondary-button"
+            onClick={exportToExcel}
+            disabled={exporting}
+          >
+            <FileSpreadsheet size={18} />
+
+            {exporting
+              ? "Gerando Excel..."
+              : "Exportar para Excel"}
+          </button>
+        </div>
+      </div>
+
+      <div className="summary-grid">
+        <div>
+          <strong>{companies.length}</strong>
+          <span>Total de CNPJs</span>
+        </div>
+
+        <div>
+          <strong>
+            {
+              companies.filter(
+                (company) =>
+                  company.submission_status === "submitted"
+              ).length
+            }
+          </strong>
+          <span>Em análise</span>
+        </div>
+
+        <div>
+          <strong>
+            {
+              companies.filter(
+                (company) =>
+                  company.submission_status === "approved"
+              ).length
+            }
+          </strong>
+          <span>Aprovados</span>
+        </div>
+
+        <div>
+          <strong>
+            {
+              companies.filter(
+                (company) =>
+                  company.submission_status === "rejected"
+              ).length
+            }
+          </strong>
+          <span>Reprovados</span>
+        </div>
+      </div>
+
+      {error && (
+        <div className="alert error">
+          {error}
+        </div>
+      )}
+
+      <div className="documents-header">
+        <div>
+          <h2>Fornecedores</h2>
+
+          <p className="muted">
+            Clique em uma empresa para visualizar a documentação enviada.
+          </p>
+        </div>
+
+        <button
+          className="back-button"
+          onClick={onBack}
+        >
+          <ArrowLeft size={17} />
+          Voltar
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="loading-box">
+          Carregando fornecedores...
+        </div>
+      ) : companies.length === 0 ? (
+        <div className="empty-box">
+          <Building2 size={40} />
+
+          <h2>Nenhum fornecedor cadastrado</h2>
+
+          <p>
+            Quando os fornecedores enviarem seus CNPJs, eles aparecerão aqui.
+          </p>
+        </div>
+      ) : (
+        <div className="company-grid">
+          {companies.map((company) => (
+            <AdminCompanyCard
+              key={company.id}
+              company={company}
+              onClick={() => setSelectedCompany(company)}
+            />
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
+
+function AdminCompanyCard({ company, onClick }) {
+  const status =
+    company.submission_status === "approved"
+      ? "approved"
+      : company.submission_status === "rejected"
+      ? "rejected"
+      : company.submission_status === "submitted"
+      ? "pending"
+      : "pending";
+
+  return (
+    <button
+      type="button"
+      className="company-card-main"
+      onClick={onClick}
+      style={{
+        background: "#ffffff",
+        border: "1px solid #e8e8e8",
+        borderRadius: "16px",
+        padding: "22px",
+        width: "100%",
+        textAlign: "left",
+        color: "inherit",
+      }}
+    >
+      <div className="company-icon">
+        <Building2 size={25} />
+      </div>
+
+      <div className="company-content">
+        <h2>{company.legal_name}</h2>
+
+        <p>
+          CNPJ: {formatCnpj(company.cnpj)}
+        </p>
+
+        <span className="company-modality">
+          {company.modality || "Serviço não informado"}
+        </span>
+
+        <div style={{ marginTop: "12px" }}>
+          <ReviewBadge status={status} />
+        </div>
+      </div>
+
+      <div className="company-arrow">›</div>
+    </button>
+  );
+}
+
+/* =========================================================
+   DETALHES DO CNPJ PARA A BUDEL
+   ========================================================= */
+
+function AdminCompanyPage({ company, onBack }) {
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState({});
+  const [companyStatus, setCompanyStatus] = useState(
+    company.submission_status || "submitted"
+  );
+  const [companyNotes, setCompanyNotes] = useState(
+    company.admin_notes || ""
+  );
+
+  async function loadDocuments() {
+    setLoading(true);
+    setError("");
+
+    const { data, error } = await supabase
+      .from("documents")
+      .select("*")
+      .eq("company_id", company.id)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setDocuments(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadDocuments();
+  }, [company.id]);
+
+  const documentMap = useMemo(() => {
+    return Object.fromEntries(
+      documents.map((doc) => [doc.type, doc])
+    );
+  }, [documents]);
+
+  async function openFiles(doc) {
+    if (!doc) return;
+
+    let files = Array.isArray(doc.files)
+      ? doc.files
+      : [];
+
+    if (files.length === 0 && doc.file_path) {
+      files = [
+        {
+          path: doc.file_path,
+          name: doc.original_name || "Documento",
+        },
+      ];
+    }
+
+    if (files.length === 0) {
+      setError("Nenhum arquivo encontrado.");
+      return;
+    }
+
+    for (const file of files) {
+      if (!file?.path) continue;
+
+      const { data, error } = await supabase.storage
+        .from("supplier-documents")
+        .createSignedUrl(file.path, 600);
+
+      if (error) {
+        setError(error.message);
+        continue;
+      }
+
+      window.open(data.signedUrl, "_blank");
+    }
+  }
+
+  async function reviewDocument(
+    doc,
+    reviewStatus,
+    notes
+  ) {
+    setSaving((current) => ({
+      ...current,
+      [doc.type]: true,
+    }));
+
+    setError("");
+    setMessage("");
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error(
+          "Sua sessão expirou. Entre novamente."
+        );
+      }
+
+      const { data, error } = await supabase
+        .from("documents")
+        .update({
+          review_status: reviewStatus,
+          admin_notes: notes || null,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user.id,
+        })
+        .eq("id", doc.id)
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      setDocuments((current) =>
+        current.map((item) =>
+          item.id === doc.id ? data : item
+        )
+      );
+
+      setMessage(
+        reviewStatus === "approved"
+          ? "Documento aprovado com sucesso."
+          : "Documento reprovado. A observação foi salva."
+      );
+    } catch (err) {
+      setError(
+        err.message ||
+          "Não foi possível salvar a análise."
+      );
+    } finally {
+      setSaving((current) => ({
+        ...current,
+        [doc.type]: false,
+      }));
+    }
+  }
+
+  async function reviewCompany(status) {
+    setError("");
+    setMessage("");
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error(
+          "Sua sessão expirou. Entre novamente."
+        );
+      }
+
+      const { error } = await supabase
+        .from("companies")
+        .update({
+          submission_status: status,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user.id,
+          admin_notes: companyNotes || null,
+        })
+        .eq("id", company.id);
+
+      if (error) {
+        throw error;
+      }
+
+      setCompanyStatus(status);
+
+      setMessage(
+        status === "approved"
+          ? "Homologação da empresa aprovada."
+          : "Homologação da empresa reprovada."
+      );
+    } catch (err) {
+      setError(
+        err.message ||
+          "Não foi possível salvar a situação da empresa."
+      );
+    }
+  }
+
+  const approvedDocuments = documents.filter(
+    (doc) => doc.review_status === "approved"
+  ).length;
+
+  const rejectedDocuments = documents.filter(
+    (doc) => doc.review_status === "rejected"
+  ).length;
+
+  return (
+    <div>
+      <button className="back-button" onClick={onBack}>
+        <ArrowLeft size={17} />
+        Voltar para fornecedores
+      </button>
+
+      <div className="company-header">
+        <div>
+          <span className="eyebrow">ANÁLISE DA BUDEL</span>
+
+          <h1>{company.legal_name}</h1>
+
+          <p>
+            CNPJ: {formatCnpj(company.cnpj)}
+          </p>
+
+          <span className="company-modality">
+            {company.modality}
+          </span>
+        </div>
+
+        <ReviewBadge
+          status={
+            companyStatus === "approved"
+              ? "approved"
+              : companyStatus === "rejected"
+              ? "rejected"
+              : "pending"
+          }
+        />
+      </div>
+
+      <div className="summary-grid">
+        <div>
+          <strong>{documents.length}</strong>
+          <span>Documentos enviados</span>
+        </div>
+
+        <div>
+          <strong>{approvedDocuments}</strong>
+          <span>Aprovados</span>
+        </div>
+
+        <div>
+          <strong>{rejectedDocuments}</strong>
+          <span>Reprovados</span>
+        </div>
+
+        <div>
+          <strong>
+            {
+              documents.filter(
+                (doc) =>
+                  !doc.review_status ||
+                  doc.review_status === "pending"
+              ).length
+            }
+          </strong>
+          <span>Em análise</span>
+        </div>
+      </div>
+
+      {message && (
+        <div className="alert success">
+          {message}
+        </div>
+      )}
+
+      {error && (
+        <div className="alert error">
+          {error}
+        </div>
+      )}
+
+      <div className="documents-header">
+        <div>
+          <h2>Documentação enviada</h2>
+
+          <p className="muted">
+            Analise cada documento e registre a decisão da Budel.
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="loading-box">
+          Carregando documentação...
+        </div>
+      ) : (
+        <div className="documents-list">
+          {documentTypes.map((item) => (
+            <AdminDocumentCard
+              key={item.key}
+              item={item}
+              document={documentMap[item.key]}
+              saving={saving[item.key]}
+              onOpen={openFiles}
+              onReview={reviewDocument}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="submit-box">
+        <div style={{ flex: 1 }}>
+          <h2>Decisão da homologação</h2>
+
+          <p>
+            Após analisar os documentos, registre a situação final desta
+            empresa.
+          </p>
+
+          <label
+            style={{
+              display: "grid",
+              gap: "7px",
+              marginTop: "15px",
+            }}
+          >
+            Observação geral da Budel
+
+            <textarea
+              value={companyNotes}
+              onChange={(e) =>
+                setCompanyNotes(e.target.value)
+              }
+              placeholder="Digite uma observação geral sobre a homologação..."
+              rows={4}
+              style={{
+                width: "100%",
+                resize: "vertical",
+              }}
+            />
+          </label>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            className="secondary-button"
+            onClick={() =>
+              reviewCompany("rejected")
+            }
+          >
+            <ShieldX size={18} />
+            Reprovar homologação
+          </button>
+
+          <button
+            className="primary-button"
+            onClick={() =>
+              reviewCompany("approved")
+            }
+          >
+            <ShieldCheck size={18} />
+            Aprovar homologação
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminDocumentCard({
+  item,
+  document,
+  saving,
+  onOpen,
+  onReview,
+}) {
+  const [notes, setNotes] = useState(
+    document?.admin_notes || ""
+  );
+
+  useEffect(() => {
+    setNotes(document?.admin_notes || "");
+  }, [document]);
+
+  const status = documentStatus(document);
+
+  const reviewStatus =
+    document?.review_status || "pending";
+
+  const files = Array.isArray(document?.files)
+    ? document.files
+    : document?.file_path
+    ? [
+        {
+          path: document.file_path,
+          name:
+            document.original_name ||
+            "Documento",
+        },
+      ]
+    : [];
+
+  return (
+    <div className="document-card">
+      <div className="document-top">
+        <div className="document-title">
+          <div className="document-icon">
+            <FileText size={21} />
+          </div>
+
+          <div>
+            <h3>
+              {item.label}
+
+              {isMandatoryDocument(item.key) && (
+                <span className="required-mark">
+                  {" "}
+                  *
+                </span>
+              )}
+            </h3>
+
+            {item.description && (
+              <p>{item.description}</p>
+            )}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          <StatusBadge status={status} />
+
+          <ReviewBadge
+            status={reviewStatus}
+          />
+        </div>
+      </div>
+
+      <div className="document-body">
+        {files.length === 0 ? (
+          <div className="required-document-notice">
+            <AlertCircle size={16} />
+
+            <span>
+              Nenhum arquivo foi enviado para este documento.
+              {document?.not_available
+                ? " O fornecedor informou que não possui essa documentação."
+                : ""}
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="selected-files">
+              {files.map((file, index) => (
+                <div
+                  className="selected-file"
+                  key={`${file.name}-${index}`}
+                >
+                  <FileText size={16} />
+
+                  <span style={{ flex: 1 }}>
+                    {file.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="document-actions">
+              <button
+                type="button"
+                className="secondary-button small-button"
+                onClick={() =>
+                  onOpen(document)
+                }
+              >
+                <Eye size={16} />
+                Abrir arquivo(s)
+              </button>
+            </div>
+          </>
+        )}
+
+        {document?.issue_date && (
+          <div className="date-fields">
+            <label>
+              Data de emissão
+
+              <input
+                type="date"
+                value={document.issue_date}
+                disabled
+                readOnly
+              />
+            </label>
+
+            <label>
+              Data de validade
+
+              <input
+                type="date"
+                value={document.expiry_date || ""}
+                disabled
+                readOnly
+              />
+            </label>
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "grid",
+            gap: "7px",
+          }}
+        >
+          Observação da Budel
+
+          <textarea
+            value={notes}
+            onChange={(e) =>
+              setNotes(e.target.value)
+            }
+            placeholder="Digite o motivo da reprovação ou alguma observação..."
+            rows={3}
+            style={{
+              width: "100%",
+              resize: "vertical",
+            }}
+          />
+        </label>
+
+        <div className="document-actions">
+          <button
+            type="button"
+            className="secondary-button small-button"
+            onClick={() =>
+              onReview(
+                document,
+                "rejected",
+                notes
+              )
+            }
+            disabled={
+              saving ||
+              !document ||
+              files.length === 0
+            }
+          >
+            <XCircle size={16} />
+            Reprovar documento
+          </button>
+
+          <button
+            type="button"
+            className="primary-button small-button"
+            onClick={() =>
+              onReview(
+                document,
+                "approved",
+                notes
+              )
+            }
+            disabled={
+              saving ||
+              !document ||
+              files.length === 0
+            }
+          >
+            <CheckCircle2 size={16} />
+            Aprovar documento
+          </button>
+        </div>
+
+        {saving && (
+          <div className="muted">
+            Salvando análise...
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
+   APP PRINCIPAL
+   ========================================================= */
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [page, setPage] = useState("home");
   const [authMode, setAuthMode] = useState("login");
   const [checkingSession, setCheckingSession] =
     useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingRole, setCheckingRole] = useState(false);
+
+  async function checkAdminRole(user) {
+    if (!user) {
+      setIsAdmin(false);
+      return false;
+    }
+
+    setCheckingRole(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error(error);
+        setIsAdmin(false);
+        return false;
+      }
+
+      const admin =
+        data?.role === "admin";
+
+      setIsAdmin(admin);
+
+      return admin;
+    } catch (err) {
+      console.error(err);
+      setIsAdmin(false);
+      return false;
+    } finally {
+      setCheckingRole(false);
+    }
+  }
 
   useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        setSession(data.session);
-        setCheckingSession(false);
-      });
+    let mounted = true;
+
+    async function loadSession() {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      setSession(currentSession);
+
+      if (currentSession?.user) {
+        const admin = await checkAdminRole(
+          currentSession.user
+        );
+
+        if (admin) {
+          setPage("admin");
+        } else {
+          setPage("dashboard");
+        }
+      }
+
+      setCheckingSession(false);
+    }
+
+    loadSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
+      async (_event, newSession) => {
         setSession(newSession);
 
-        if (newSession) {
-          setPage("dashboard");
+        if (newSession?.user) {
+          const admin = await checkAdminRole(
+            newSession.user
+          );
+
+          if (admin) {
+            setPage("admin");
+          } else {
+            setPage("dashboard");
+          }
+        } else {
+          setIsAdmin(false);
+          setPage("home");
         }
       }
     );
 
-    return () =>
+    return () => {
+      mounted = false;
       subscription.unsubscribe();
+    };
   }, []);
 
   function downloadChecklist() {
@@ -1480,10 +2480,11 @@ export default function App() {
     await supabase.auth.signOut();
 
     setSession(null);
+    setIsAdmin(false);
     setPage("home");
   }
 
-  if (checkingSession) {
+  if (checkingSession || checkingRole) {
     return (
       <div className="app-loading">
         Carregando portal...
@@ -1495,11 +2496,15 @@ export default function App() {
     <div className="app">
       <Header
         session={session}
+        isAdmin={isAdmin}
+        onAdmin={() => setPage("admin")}
         onLogout={logout}
         onHome={() =>
           setPage(
             session
-              ? "dashboard"
+              ? isAdmin
+                ? "admin"
+                : "dashboard"
               : "home"
           )
         }
@@ -1530,11 +2535,21 @@ export default function App() {
         />
       )}
 
-      {page === "dashboard" && session && (
-        <SupplierDashboard
-          onLogout={logout}
-        />
-      )}
+      {page === "dashboard" &&
+        session &&
+        !isAdmin && (
+          <SupplierDashboard
+            onLogout={logout}
+          />
+        )}
+
+      {page === "admin" &&
+        session &&
+        isAdmin && (
+          <AdminDashboard
+            onBack={() => setPage("home")}
+          />
+        )}
 
       <footer className="site-footer">
         <div>
