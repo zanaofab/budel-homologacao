@@ -431,22 +431,15 @@ function CompanyForm({ onCancel, onCreated }) {
           />
         </label>
 
-        <label>
-          Modalidade da empresa
-          <select
-            value={modality}
-            onChange={(e) => setModality(e.target.value)}
-            required
-          >
-            <option value="">Selecione</option>
-            <option value="Transportadora">Transportadora</option>
-            <option value="Prestador de serviços">
-              Prestador de serviços
-            </option>
-            <option value="Fornecedor">Fornecedor</option>
-            <option value="Outro">Outro</option>
-          </select>
-        </label>
+<label>
+  Serviço/atividade fornecida à Budel
+  <input
+    value={modality}
+    onChange={(e) => setModality(e.target.value)}
+    placeholder="Digite o serviço ou atividade da empresa"
+    required
+  />
+</label>
 
         {error && <div className="alert error full-width">{error}</div>}
 
