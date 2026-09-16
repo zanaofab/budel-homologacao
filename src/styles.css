@@ -900,3 +900,9 @@ button:disabled {
     width: 100%;
   }
 }
+.brand-logo {
+  display: block;
+  width: 150px;
+  height: auto;
+  object-fit: contain;
+}
