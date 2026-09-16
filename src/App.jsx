@@ -1,4 +1,3 @@
-```jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -1914,18 +1913,31 @@ function AdminDashboard({
   ]);
 
   async function exportExcel() {
-  if (!companies.length) return;
+    if (!companies.length) return;
 
-  try {
-    setMessage("");
+    try {
+      setMessage("");
 
-    const companyIds = companies.map((company) => company.id);
-    const ownerIds = [
-      ...new Set(companies.map((company) => company.owner_id).filter(Boolean)),
-    ];
+      const companyIds = companies.map((company) => company.id);
 
-    const [{ data: documentsData, error: documentsError }, { data: profilesData, error: profilesError }] =
-      await Promise.all([
+      const ownerIds = [
+        ...new Set(
+          companies
+            .map((company) => company.owner_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      const [
+        {
+          data: documentsData,
+          error: documentsError,
+        },
+        {
+          data: profilesData,
+          error: profilesError,
+        },
+      ] = await Promise.all([
         supabase
           .from("documents")
           .select("*")
@@ -1937,148 +1949,137 @@ function AdminDashboard({
           .in("id", ownerIds),
       ]);
 
-    if (documentsError) {
-      throw documentsError;
-    }
-
-    if (profilesError) {
-      throw profilesError;
-    }
-
-    const documentsByCompany = {};
-
-    (documentsData || []).forEach((document) => {
-      if (!documentsByCompany[document.company_id]) {
-        documentsByCompany[document.company_id] = {};
+      if (documentsError) {
+        throw documentsError;
       }
 
-      documentsByCompany[document.company_id][document.type] = document;
-    });
+      if (profilesError) {
+        throw profilesError;
+      }
 
-    const profilesById = {};
+      const documentsByCompany = {};
 
-    (profilesData || []).forEach((profile) => {
-      profilesById[profile.id] = profile;
-    });
+      (documentsData || []).forEach((document) => {
+        if (!documentsByCompany[document.company_id]) {
+          documentsByCompany[document.company_id] = {};
+        }
 
-    const rows = companies.map((company) => {
-      const owner = profilesById[company.owner_id] || {};
-      const companyDocuments =
-        documentsByCompany[company.id] || {};
-
-      const row = {
-        "Nome do fornecedor": owner.full_name || "",
-        "E-mail do fornecedor": owner.email || "",
-        "Razão Social": company.legal_name || "",
-        CNPJ: formatCnpj(company.cnpj),
-        "Serviço/atividade": company.modality || "",
-        "Status da homologação": getCompanyStatusLabel(
-          company.submission_status
-        ),
-        "Data de envio": formatDate(
-          company.submitted_at?.slice(0, 10)
-        ),
-        "Data de análise": formatDate(
-          company.reviewed_at?.slice(0, 10)
-        ),
-        "Observação geral": company.review_notes || "",
-      };
-
-      DOCUMENTS.forEach((item) => {
-        const document = companyDocuments[item.type];
-
-        const documentFiles = getDocumentFiles(document);
-
-        row[`${item.label} - Documento`] = documentFiles
-          .map((file) => file.name)
-          .join(" | ");
-
-        row[`${item.label} - Data de emissão`] =
-          formatDate(document?.issue_date);
-
-        row[`${item.label} - Data de vencimento`] =
-          formatDate(document?.expiry_date);
-
-        row[`${item.label} - Status`] =
-          document?.not_available
-            ? "Não possui documentação"
-            : document?.review_status
-            ? STATUS_LABELS[document.review_status] ||
-              document.review_status
-            : documentFiles.length
-            ? "Aguardando análise"
-            : "Não enviado";
-
-        row[`${item.label} - Observação`] =
-          document?.review_notes || "";
+        documentsByCompany[document.company_id][document.type] =
+          document;
       });
 
-      return row;
-    });
+      const profilesById = {};
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+      (profilesData || []).forEach((profile) => {
+        profilesById[profile.id] = profile;
+      });
 
-    worksheet["!cols"] = [
-      { wch: 28 },
-      { wch: 34 },
-      { wch: 32 },
-      { wch: 20 },
-      { wch: 38 },
-      { wch: 24 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 35 },
+      const rows = companies.map((company) => {
+        const owner = profilesById[company.owner_id] || {};
 
-      ...DOCUMENTS.flatMap(() => [
-        { wch: 35 },
-        { wch: 18 },
+        const companyDocuments =
+          documentsByCompany[company.id] || {};
+
+        const row = {
+          "Nome do fornecedor": owner.full_name || "",
+          "E-mail do fornecedor": owner.email || "",
+          "Razão Social": company.legal_name || "",
+          CNPJ: formatCnpj(company.cnpj),
+          "Serviço/atividade": company.modality || "",
+          "Status da homologação": getCompanyStatusLabel(
+            company.submission_status
+          ),
+          "Data de envio": formatDate(
+            company.submitted_at?.slice(0, 10)
+          ),
+          "Data de análise": formatDate(
+            company.reviewed_at?.slice(0, 10)
+          ),
+          "Observação geral": company.review_notes || "",
+        };
+
+        DOCUMENTS.forEach((item) => {
+          const document = companyDocuments[item.type];
+
+          const documentFiles =
+            getDocumentFiles(document);
+
+          row[`${item.label} - Documento`] =
+            documentFiles
+              .map((file) => file.name)
+              .join(" | ");
+
+          row[`${item.label} - Data de emissão`] =
+            formatDate(document?.issue_date);
+
+          row[`${item.label} - Data de vencimento`] =
+            formatDate(document?.expiry_date);
+
+          row[`${item.label} - Status`] =
+            document?.not_available
+              ? "Não possui documentação"
+              : document?.review_status
+              ? STATUS_LABELS[
+                  document.review_status
+                ] ||
+                document.review_status
+              : documentFiles.length
+              ? "Aguardando análise"
+              : "Não enviado";
+
+          row[`${item.label} - Observação`] =
+            document?.review_notes || "";
+        });
+
+        return row;
+      });
+
+      const worksheet =
+        XLSX.utils.json_to_sheet(rows);
+
+      worksheet["!cols"] = [
+        { wch: 28 },
+        { wch: 34 },
+        { wch: 32 },
         { wch: 20 },
+        { wch: 38 },
         { wch: 24 },
+        { wch: 15 },
+        { wch: 15 },
         { wch: 35 },
-      ]),
-    ];
 
-    const workbook = XLSX.utils.book_new();
+        ...DOCUMENTS.flatMap(() => [
+          { wch: 35 },
+          { wch: 18 },
+          { wch: 20 },
+          { wch: 24 },
+          { wch: 35 },
+        ]),
+      ];
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      "Homologação"
-    );
+      const workbook =
+        XLSX.utils.book_new();
 
-    XLSX.writeFile(
-      workbook,
-      `relatorio-homologacao-${new Date()
-        .toISOString()
-        .slice(0, 10)}.xlsx`
-    );
-  } catch (error) {
-    console.error(error);
+      XLSX.utils.book_append_sheet(
+        workbook,
+        worksheet,
+        "Homologação"
+      );
 
-    setMessage(
-      error?.message ||
-        "Não foi possível gerar o relatório para Excel."
-    );
-  }
-}
-    const worksheet =
-      XLSX.utils.json_to_sheet(rows);
+      XLSX.writeFile(
+        workbook,
+        `relatorio-homologacao-${new Date()
+          .toISOString()
+          .slice(0, 10)}.xlsx`
+      );
+    } catch (error) {
+      console.error(error);
 
-    const workbook =
-      XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(
-      workbook,
-      worksheet,
-      "Homologação"
-    );
-
-    XLSX.writeFile(
-      workbook,
-      `relatorio-homologacao-${new Date()
-        .toISOString()
-        .slice(0, 10)}.xlsx`
-    );
+      setMessage(
+        error?.message ||
+          "Não foi possível gerar o relatório para Excel."
+      );
+    }
   }
 
   return (
@@ -2652,6 +2653,7 @@ function AdminCompanyPage({
           <label>
             Observação
             <textarea
+              className="admin-review-observation"
               value={reviewNotes}
               onChange={(event) =>
                 setReviewNotes(
@@ -2659,7 +2661,7 @@ function AdminCompanyPage({
                 )
               }
               placeholder="Informe observações ou correções necessárias..."
-              rows={5}
+              rows={8}
             />
           </label>
 
@@ -2902,6 +2904,7 @@ function AdminDocumentCard({
               <label>
                 Observação deste documento
                 <textarea
+                  className="document-review-observation"
                   value={notes}
                   onChange={(event) =>
                     setNotes(
@@ -2909,7 +2912,7 @@ function AdminDocumentCard({
                     )
                   }
                   placeholder="Informe uma observação..."
-                  rows={3}
+                  rows={6}
                 />
               </label>
 
@@ -2948,11 +2951,7 @@ function AdminDocumentCard({
 /*
  * CORREÇÃO DO VISUALIZAR PDF
  *
- * Abrimos uma aba em branco ANTES de esperar o Supabase.
- * Depois que a URL assinada for criada, colocamos essa URL na nova aba.
- *
- * Isso evita que o navegador interprete o clique como navegação
- * dentro do próprio portal e volte para a página inicial.
+ * O PDF é aberto dentro do próprio portal em uma janela de visualização.
  */
 function AdminFileItem({ file }) {
   const [url, setUrl] = useState("");
@@ -3080,6 +3079,7 @@ function AdminFileItem({ file }) {
     </>
   );
 }
+
 function StatusBadge({
   status,
   label,
@@ -3108,4 +3108,3 @@ function StatusBadge({
 }
 
 export default App;
-```
