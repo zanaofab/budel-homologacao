@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   ShieldX,
   Eye,
-  Save,
   FileSpreadsheet,
 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -25,10 +24,6 @@ import { documentTypes } from "./data/checklist";
 const checklistUrl =
   "/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx";
 
-/*
-  Documentos obrigatórios e que não podem ser marcados
-  como "Não possuímos essa documentação".
-*/
 const mandatoryDocuments = [
   "cartao_cnpj",
   "checklist",
@@ -84,13 +79,8 @@ function documentStatus(doc) {
   if (doc.expiry_date) {
     const days = daysUntil(doc.expiry_date);
 
-    if (days < 0) {
-      return "expired";
-    }
-
-    if (days <= 15) {
-      return "expiring";
-    }
+    if (days < 0) return "expired";
+    if (days <= 15) return "expiring";
   }
 
   return "ok";
@@ -108,7 +98,16 @@ function statusLabel(status) {
 function reviewLabel(status) {
   if (status === "approved") return "Aprovado";
   if (status === "rejected") return "Reprovado";
+
   return "Em análise";
+}
+
+function companyStatusLabel(status) {
+  if (status === "approved") return "Homologação aprovada";
+  if (status === "rejected") return "Homologação reprovada";
+  if (status === "submitted") return "Em análise";
+
+  return "Rascunho";
 }
 
 function ReviewBadge({ status }) {
@@ -117,12 +116,10 @@ function ReviewBadge({ status }) {
       icon: <CheckCircle2 size={15} />,
       className: "status-ok",
     },
-
     rejected: {
       icon: <XCircle size={15} />,
       className: "status-danger",
     },
-
     pending: {
       icon: <Clock3 size={15} />,
       className: "status-warning",
@@ -145,22 +142,18 @@ function StatusBadge({ status }) {
       icon: <CheckCircle2 size={16} />,
       className: "status-ok",
     },
-
     expiring: {
       icon: <Clock3 size={16} />,
       className: "status-warning",
     },
-
     expired: {
       icon: <AlertCircle size={16} />,
       className: "status-danger",
     },
-
     not_available: {
       icon: <XCircle size={16} />,
       className: "status-muted",
     },
-
     missing: {
       icon: <AlertCircle size={16} />,
       className: "status-pending",
@@ -561,7 +554,7 @@ function CompanyForm({ onCancel, onCreated }) {
    ÁREA DO FORNECEDOR
    ========================================================= */
 
-function SupplierDashboard({ onLogout }) {
+function SupplierDashboard() {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState("companies");
@@ -721,7 +714,6 @@ function SupplierDashboard({ onLogout }) {
 function CompanyCard({ company, onClick, onDelete }) {
   async function handleDelete(e) {
     e.stopPropagation();
-
     await onDelete(company);
   }
 
@@ -744,6 +736,12 @@ function CompanyCard({ company, onClick, onDelete }) {
           <span className="company-modality">
             {company.modality || "Serviço não informado"}
           </span>
+
+          <div style={{ marginTop: "12px" }}>
+            <span className="status-badge status-pending">
+              {companyStatusLabel(company.submission_status)}
+            </span>
+          </div>
         </div>
 
         <div className="company-arrow">›</div>
@@ -850,6 +848,11 @@ function DocumentsPage({ company, onBack }) {
         });
       }
 
+      /*
+        Se o fornecedor enviar novos arquivos depois de uma reprovação,
+        os novos arquivos ficam novamente em análise.
+      */
+
       if (values.files?.length) {
         for (const file of values.files) {
           const extension =
@@ -887,9 +890,11 @@ function DocumentsPage({ company, onBack }) {
         issue_date: values.issueDate || null,
         expiry_date: values.expiryDate || null,
         not_available: values.notAvailable,
+
         notes: null,
+
         review_status: "pending",
-        admin_notes: null,
+        review_notes: null,
         reviewed_at: null,
         reviewed_by: null,
       };
@@ -904,6 +909,20 @@ function DocumentsPage({ company, onBack }) {
 
       if (dbError) {
         throw dbError;
+      }
+
+      /*
+        Se havia reprovação da Budel e o fornecedor atualizou o documento,
+        a empresa volta para análise quando o fornecedor enviar novamente.
+      */
+
+      if (existing?.review_status === "rejected") {
+        await supabase
+          .from("companies")
+          .update({
+            submission_status: "draft",
+          })
+          .eq("id", company.id);
       }
 
       setDocuments((current) => [
@@ -1067,8 +1086,22 @@ function DocumentsPage({ company, onBack }) {
           <span className="company-modality">
             {company.modality}
           </span>
+
+          <div style={{ marginTop: "12px" }}>
+            <span className="status-badge status-pending">
+              {companyStatusLabel(company.submission_status)}
+            </span>
+          </div>
         </div>
       </div>
+
+      {company.submission_status === "rejected" && (
+        <div className="alert error">
+          A homologação foi reprovada pela Budel. Verifique as observações
+          dos documentos, atualize o que for necessário e envie novamente
+          para análise.
+        </div>
+      )}
 
       <div className="summary-grid">
         <div>
@@ -1202,7 +1235,6 @@ function DocumentCard({
 
   function save() {
     const hasExistingFile = existingFilesCount > 0;
-
     const hasNewFile = files.length > 0;
 
     if (mandatory) {
@@ -1232,9 +1264,7 @@ function DocumentCard({
       item.expires &&
       !expiryDate
     ) {
-      alert(
-        "Informe a validade do documento."
-      );
+      alert("Informe a validade do documento.");
 
       return;
     }
@@ -1275,10 +1305,37 @@ function DocumentCard({
           </div>
         </div>
 
-        <StatusBadge status={status} />
+        <div
+          style={{
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          <StatusBadge status={status} />
+
+          {document?.review_status === "approved" && (
+            <ReviewBadge status="approved" />
+          )}
+
+          {document?.review_status === "rejected" && (
+            <ReviewBadge status="rejected" />
+          )}
+        </div>
       </div>
 
       <div className="document-body">
+
+        {document?.review_status === "rejected" &&
+          document?.review_notes && (
+            <div className="alert error">
+              <strong>Observação da Budel:</strong>
+              <br />
+              {document.review_notes}
+            </div>
+          )}
+
         <label className="upload-area">
           <Upload size={24} />
 
@@ -1300,9 +1357,7 @@ function DocumentCard({
             accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
             onChange={(e) => {
               setFiles(
-                Array.from(
-                  e.target.files || []
-                )
+                Array.from(e.target.files || [])
               );
             }}
             disabled={notAvailable}
@@ -1363,8 +1418,7 @@ function DocumentCard({
               type="checkbox"
               checked={notAvailable}
               onChange={(e) => {
-                const checked =
-                  e.target.checked;
+                const checked = e.target.checked;
 
                 setNotAvailable(checked);
 
@@ -1415,6 +1469,8 @@ function DocumentCard({
           >
             {saving
               ? "Salvando..."
+              : document?.review_status === "rejected"
+              ? "Enviar novo documento"
               : "Salvar documento"}
           </button>
         </div>
@@ -1498,10 +1554,12 @@ function AdminDashboard({ onBack }) {
               ? "Em análise"
               : "Rascunho",
           "Data do envio": company.submitted_at
-            ? new Date(company.submitted_at).toLocaleDateString(
-                "pt-BR"
-              )
+            ? new Date(
+                company.submitted_at
+              ).toLocaleDateString("pt-BR")
             : "",
+          "Observação geral da Budel":
+            company.review_notes || "",
         };
 
         documentTypes.forEach((item) => {
@@ -1532,7 +1590,8 @@ function AdminDashboard({ onBack }) {
             ? [
                 {
                   name:
-                    doc.original_name || "Documento",
+                    doc.original_name ||
+                    "Documento",
                 },
               ]
             : [];
@@ -1541,15 +1600,17 @@ function AdminDashboard({ onBack }) {
             files.map((file) => file.name).join(" | ");
 
           row[`${item.label} - Observação`] =
-            doc?.admin_notes || "";
+            doc?.review_notes || "";
         });
 
         return row;
       });
 
-      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const worksheet =
+        XLSX.utils.json_to_sheet(rows);
 
-      const workbook = XLSX.utils.book_new();
+      const workbook =
+        XLSX.utils.book_new();
 
       XLSX.utils.book_append_sheet(
         workbook,
@@ -1563,6 +1624,7 @@ function AdminDashboard({ onBack }) {
         { wch: 38 },
         { wch: 20 },
         { wch: 15 },
+        { wch: 40 },
       ];
 
       XLSX.writeFile(
@@ -1571,7 +1633,8 @@ function AdminDashboard({ onBack }) {
       );
     } catch (err) {
       setError(
-        err.message || "Não foi possível exportar o relatório."
+        err.message ||
+          "Não foi possível exportar o relatório."
       );
     } finally {
       setExporting(false);
@@ -1707,7 +1770,9 @@ function AdminDashboard({ onBack }) {
             <AdminCompanyCard
               key={company.id}
               company={company}
-              onClick={() => setSelectedCompany(company)}
+              onClick={() =>
+                setSelectedCompany(company)
+              }
             />
           ))}
         </div>
@@ -1716,14 +1781,15 @@ function AdminDashboard({ onBack }) {
   );
 }
 
-function AdminCompanyCard({ company, onClick }) {
+function AdminCompanyCard({
+  company,
+  onClick,
+}) {
   const status =
     company.submission_status === "approved"
       ? "approved"
       : company.submission_status === "rejected"
       ? "rejected"
-      : company.submission_status === "submitted"
-      ? "pending"
       : "pending";
 
   return (
@@ -1737,8 +1803,13 @@ function AdminCompanyCard({ company, onClick }) {
         borderRadius: "16px",
         padding: "22px",
         width: "100%",
+        minHeight: "220px",
         textAlign: "left",
         color: "inherit",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "16px",
+        cursor: "pointer",
       }}
     >
       <div className="company-icon">
@@ -1756,8 +1827,21 @@ function AdminCompanyCard({ company, onClick }) {
           {company.modality || "Serviço não informado"}
         </span>
 
-        <div style={{ marginTop: "12px" }}>
+        <div
+          style={{
+            marginTop: "12px",
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
+        >
           <ReviewBadge status={status} />
+
+          <span className="status-badge status-pending">
+            {companyStatusLabel(
+              company.submission_status
+            )}
+          </span>
         </div>
       </div>
 
@@ -1770,18 +1854,26 @@ function AdminCompanyCard({ company, onClick }) {
    DETALHES DO CNPJ PARA A BUDEL
    ========================================================= */
 
-function AdminCompanyPage({ company, onBack }) {
+function AdminCompanyPage({
+  company,
+  onBack,
+}) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
   const [saving, setSaving] = useState({});
-  const [companyStatus, setCompanyStatus] = useState(
-    company.submission_status || "submitted"
-  );
-  const [companyNotes, setCompanyNotes] = useState(
-    company.admin_notes || ""
-  );
+
+  const [companyStatus, setCompanyStatus] =
+    useState(
+      company.submission_status || "submitted"
+    );
+
+  const [companyNotes, setCompanyNotes] =
+    useState(
+      company.review_notes || ""
+    );
 
   async function loadDocuments() {
     setLoading(true);
@@ -1791,7 +1883,9 @@ function AdminCompanyPage({ company, onBack }) {
       .from("documents")
       .select("*")
       .eq("company_id", company.id)
-      .order("created_at", { ascending: true });
+      .order("created_at", {
+        ascending: true,
+      });
 
     if (error) {
       setError(error.message);
@@ -1808,7 +1902,10 @@ function AdminCompanyPage({ company, onBack }) {
 
   const documentMap = useMemo(() => {
     return Object.fromEntries(
-      documents.map((doc) => [doc.type, doc])
+      documents.map((doc) => [
+        doc.type,
+        doc,
+      ])
     );
   }, [documents]);
 
@@ -1819,33 +1916,49 @@ function AdminCompanyPage({ company, onBack }) {
       ? doc.files
       : [];
 
-    if (files.length === 0 && doc.file_path) {
+    if (
+      files.length === 0 &&
+      doc.file_path
+    ) {
       files = [
         {
           path: doc.file_path,
-          name: doc.original_name || "Documento",
+          name:
+            doc.original_name ||
+            "Documento",
         },
       ];
     }
 
     if (files.length === 0) {
-      setError("Nenhum arquivo encontrado.");
+      setError(
+        "Nenhum arquivo encontrado."
+      );
       return;
     }
 
     for (const file of files) {
       if (!file?.path) continue;
 
-      const { data, error } = await supabase.storage
+      const {
+        data,
+        error,
+      } = await supabase.storage
         .from("supplier-documents")
-        .createSignedUrl(file.path, 600);
+        .createSignedUrl(
+          file.path,
+          600
+        );
 
       if (error) {
         setError(error.message);
         continue;
       }
 
-      window.open(data.signedUrl, "_blank");
+      window.open(
+        data.signedUrl,
+        "_blank"
+      );
     }
   }
 
@@ -1854,6 +1967,8 @@ function AdminCompanyPage({ company, onBack }) {
     reviewStatus,
     notes
   ) {
+    if (!doc) return;
+
     setSaving((current) => ({
       ...current,
       [doc.type]: true,
@@ -1865,7 +1980,8 @@ function AdminCompanyPage({ company, onBack }) {
     try {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
       if (!user) {
         throw new Error(
@@ -1873,12 +1989,18 @@ function AdminCompanyPage({ company, onBack }) {
         );
       }
 
-      const { data, error } = await supabase
+      const {
+        data,
+        error,
+      } = await supabase
         .from("documents")
         .update({
-          review_status: reviewStatus,
-          admin_notes: notes || null,
-          reviewed_at: new Date().toISOString(),
+          review_status:
+            reviewStatus,
+          review_notes:
+            notes || null,
+          reviewed_at:
+            new Date().toISOString(),
           reviewed_by: user.id,
         })
         .eq("id", doc.id)
@@ -1891,9 +2013,31 @@ function AdminCompanyPage({ company, onBack }) {
 
       setDocuments((current) =>
         current.map((item) =>
-          item.id === doc.id ? data : item
+          item.id === doc.id
+            ? data
+            : item
         )
       );
+
+      /*
+        Se um documento foi reprovado,
+        a empresa fica reprovada até o fornecedor
+        corrigir e enviar novamente.
+      */
+
+      if (reviewStatus === "rejected") {
+        await supabase
+          .from("companies")
+          .update({
+            submission_status:
+              "rejected",
+            review_notes:
+              "Existem documentos reprovados. Consulte as observações.",
+          })
+          .eq("id", company.id);
+
+        setCompanyStatus("rejected");
+      }
 
       setMessage(
         reviewStatus === "approved"
@@ -1913,14 +2057,17 @@ function AdminCompanyPage({ company, onBack }) {
     }
   }
 
-  async function reviewCompany(status) {
+  async function reviewCompany(
+    status
+  ) {
     setError("");
     setMessage("");
 
     try {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
       if (!user) {
         throw new Error(
@@ -1928,15 +2075,66 @@ function AdminCompanyPage({ company, onBack }) {
         );
       }
 
-      const { error } = await supabase
+      if (status === "approved") {
+        const missingRequired =
+          documentTypes.filter(
+            (item) => {
+              const doc =
+                documentMap[item.key];
+
+              return (
+                isMandatoryDocument(
+                  item.key
+                ) &&
+                !hasDocumentFiles(doc)
+              );
+            }
+          );
+
+        if (
+          missingRequired.length > 0
+        ) {
+          setError(
+            `Não é possível aprovar a empresa enquanto houver ${missingRequired.length} documento(s) obrigatório(s) sem arquivo.`
+          );
+
+          return;
+        }
+
+        const rejected =
+          documents.filter(
+            (doc) =>
+              doc.review_status ===
+              "rejected"
+          );
+
+        if (rejected.length > 0) {
+          setError(
+            "Existem documentos reprovados. Corrija ou reavalie os documentos antes de aprovar a homologação."
+          );
+
+          return;
+        }
+      }
+
+      const {
+        error,
+      } = await supabase
         .from("companies")
         .update({
-          submission_status: status,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: user.id,
-          admin_notes: companyNotes || null,
+          submission_status:
+            status,
+          reviewed_at:
+            new Date().toISOString(),
+          reviewed_by:
+            user.id,
+          review_notes:
+            companyNotes || null,
         })
-        .eq("id", company.id);
+        .eq(
+          "id",
+          company.id
+        );
 
       if (error) {
         throw error;
@@ -1957,29 +2155,50 @@ function AdminCompanyPage({ company, onBack }) {
     }
   }
 
-  const approvedDocuments = documents.filter(
-    (doc) => doc.review_status === "approved"
-  ).length;
+  const approvedDocuments =
+    documents.filter(
+      (doc) =>
+        doc.review_status ===
+        "approved"
+    ).length;
 
-  const rejectedDocuments = documents.filter(
-    (doc) => doc.review_status === "rejected"
-  ).length;
+  const rejectedDocuments =
+    documents.filter(
+      (doc) =>
+        doc.review_status ===
+        "rejected"
+    ).length;
+
+  const pendingDocuments =
+    documentTypes.length -
+    approvedDocuments -
+    rejectedDocuments;
 
   return (
     <div>
-      <button className="back-button" onClick={onBack}>
+      <button
+        className="back-button"
+        onClick={onBack}
+      >
         <ArrowLeft size={17} />
         Voltar para fornecedores
       </button>
 
       <div className="company-header">
         <div>
-          <span className="eyebrow">ANÁLISE DA BUDEL</span>
+          <span className="eyebrow">
+            ANÁLISE DA BUDEL
+          </span>
 
-          <h1>{company.legal_name}</h1>
+          <h1>
+            {company.legal_name}
+          </h1>
 
           <p>
-            CNPJ: {formatCnpj(company.cnpj)}
+            CNPJ:{" "}
+            {formatCnpj(
+              company.cnpj
+            )}
           </p>
 
           <span className="company-modality">
@@ -1987,44 +2206,51 @@ function AdminCompanyPage({ company, onBack }) {
           </span>
         </div>
 
-        <ReviewBadge
-          status={
-            companyStatus === "approved"
-              ? "approved"
-              : companyStatus === "rejected"
-              ? "rejected"
-              : "pending"
-          }
-        />
+        <span className="status-badge status-pending">
+          {companyStatusLabel(
+            companyStatus
+          )}
+        </span>
       </div>
 
       <div className="summary-grid">
         <div>
-          <strong>{documents.length}</strong>
-          <span>Documentos enviados</span>
-        </div>
-
-        <div>
-          <strong>{approvedDocuments}</strong>
-          <span>Aprovados</span>
-        </div>
-
-        <div>
-          <strong>{rejectedDocuments}</strong>
-          <span>Reprovados</span>
+          <strong>
+            {documents.length}
+          </strong>
+          <span>
+            Documentos enviados
+          </span>
         </div>
 
         <div>
           <strong>
-            {
-              documents.filter(
-                (doc) =>
-                  !doc.review_status ||
-                  doc.review_status === "pending"
-              ).length
-            }
+            {approvedDocuments}
           </strong>
-          <span>Em análise</span>
+          <span>
+            Aprovados
+          </span>
+        </div>
+
+        <div>
+          <strong>
+            {rejectedDocuments}
+          </strong>
+          <span>
+            Reprovados
+          </span>
+        </div>
+
+        <div>
+          <strong>
+            {Math.max(
+              0,
+              pendingDocuments
+            )}
+          </strong>
+          <span>
+            Em análise
+          </span>
         </div>
       </div>
 
@@ -2042,7 +2268,9 @@ function AdminCompanyPage({ company, onBack }) {
 
       <div className="documents-header">
         <div>
-          <h2>Documentação enviada</h2>
+          <h2>
+            Documentação enviada
+          </h2>
 
           <p className="muted">
             Analise cada documento e registre a decisão da Budel.
@@ -2056,22 +2284,38 @@ function AdminCompanyPage({ company, onBack }) {
         </div>
       ) : (
         <div className="documents-list">
-          {documentTypes.map((item) => (
-            <AdminDocumentCard
-              key={item.key}
-              item={item}
-              document={documentMap[item.key]}
-              saving={saving[item.key]}
-              onOpen={openFiles}
-              onReview={reviewDocument}
-            />
-          ))}
+          {documentTypes.map(
+            (item) => (
+              <AdminDocumentCard
+                key={item.key}
+                item={item}
+                document={
+                  documentMap[
+                    item.key
+                  ]
+                }
+                saving={
+                  saving[
+                    item.key
+                  ]
+                }
+                onOpen={
+                  openFiles
+                }
+                onReview={
+                  reviewDocument
+                }
+              />
+            )
+          )}
         </div>
       )}
 
       <div className="submit-box">
         <div style={{ flex: 1 }}>
-          <h2>Decisão da homologação</h2>
+          <h2>
+            Decisão da homologação
+          </h2>
 
           <p>
             Após analisar os documentos, registre a situação final desta
@@ -2088,9 +2332,13 @@ function AdminCompanyPage({ company, onBack }) {
             Observação geral da Budel
 
             <textarea
-              value={companyNotes}
+              value={
+                companyNotes
+              }
               onChange={(e) =>
-                setCompanyNotes(e.target.value)
+                setCompanyNotes(
+                  e.target.value
+                )
               }
               placeholder="Digite uma observação geral sobre a homologação..."
               rows={4}
@@ -2112,7 +2360,9 @@ function AdminCompanyPage({ company, onBack }) {
           <button
             className="secondary-button"
             onClick={() =>
-              reviewCompany("rejected")
+              reviewCompany(
+                "rejected"
+              )
             }
           >
             <ShieldX size={18} />
@@ -2122,7 +2372,9 @@ function AdminCompanyPage({ company, onBack }) {
           <button
             className="primary-button"
             onClick={() =>
-              reviewCompany("approved")
+              reviewCompany(
+                "approved"
+              )
             }
           >
             <ShieldCheck size={18} />
@@ -2141,31 +2393,42 @@ function AdminDocumentCard({
   onOpen,
   onReview,
 }) {
-  const [notes, setNotes] = useState(
-    document?.admin_notes || ""
-  );
+  const [notes, setNotes] =
+    useState(
+      document?.review_notes ||
+        ""
+    );
 
   useEffect(() => {
-    setNotes(document?.admin_notes || "");
+    setNotes(
+      document?.review_notes ||
+        ""
+    );
   }, [document]);
 
-  const status = documentStatus(document);
+  const status =
+    documentStatus(document);
 
   const reviewStatus =
-    document?.review_status || "pending";
+    document?.review_status ||
+    "pending";
 
-  const files = Array.isArray(document?.files)
-    ? document.files
-    : document?.file_path
-    ? [
-        {
-          path: document.file_path,
-          name:
-            document.original_name ||
-            "Documento",
-        },
-      ]
-    : [];
+  const files =
+    Array.isArray(
+      document?.files
+    )
+      ? document.files
+      : document?.file_path
+      ? [
+          {
+            path:
+              document.file_path,
+            name:
+              document.original_name ||
+              "Documento",
+          },
+        ]
+      : [];
 
   return (
     <div className="document-card">
@@ -2179,7 +2442,9 @@ function AdminDocumentCard({
             <h3>
               {item.label}
 
-              {isMandatoryDocument(item.key) && (
+              {isMandatoryDocument(
+                item.key
+              ) && (
                 <span className="required-mark">
                   {" "}
                   *
@@ -2188,7 +2453,9 @@ function AdminDocumentCard({
             </h3>
 
             {item.description && (
-              <p>{item.description}</p>
+              <p>
+                {item.description}
+              </p>
             )}
           </div>
         </div>
@@ -2198,13 +2465,18 @@ function AdminDocumentCard({
             display: "flex",
             gap: "8px",
             flexWrap: "wrap",
-            justifyContent: "flex-end",
+            justifyContent:
+              "flex-end",
           }}
         >
-          <StatusBadge status={status} />
+          <StatusBadge
+            status={status}
+          />
 
           <ReviewBadge
-            status={reviewStatus}
+            status={
+              reviewStatus
+            }
           />
         </div>
       </div>
@@ -2224,18 +2496,27 @@ function AdminDocumentCard({
         ) : (
           <>
             <div className="selected-files">
-              {files.map((file, index) => (
-                <div
-                  className="selected-file"
-                  key={`${file.name}-${index}`}
-                >
-                  <FileText size={16} />
+              {files.map(
+                (
+                  file,
+                  index
+                ) => (
+                  <div
+                    className="selected-file"
+                    key={`${file.name}-${index}`}
+                  >
+                    <FileText size={16} />
 
-                  <span style={{ flex: 1 }}>
-                    {file.name}
-                  </span>
-                </div>
-              ))}
+                    <span
+                      style={{
+                        flex: 1,
+                      }}
+                    >
+                      {file.name}
+                    </span>
+                  </div>
+                )
+              )}
             </div>
 
             <div className="document-actions">
@@ -2243,7 +2524,9 @@ function AdminDocumentCard({
                 type="button"
                 className="secondary-button small-button"
                 onClick={() =>
-                  onOpen(document)
+                  onOpen(
+                    document
+                  )
                 }
               >
                 <Eye size={16} />
@@ -2260,7 +2543,9 @@ function AdminDocumentCard({
 
               <input
                 type="date"
-                value={document.issue_date}
+                value={
+                  document.issue_date
+                }
                 disabled
                 readOnly
               />
@@ -2271,7 +2556,10 @@ function AdminDocumentCard({
 
               <input
                 type="date"
-                value={document.expiry_date || ""}
+                value={
+                  document.expiry_date ||
+                  ""
+                }
                 disabled
                 readOnly
               />
@@ -2290,7 +2578,9 @@ function AdminDocumentCard({
           <textarea
             value={notes}
             onChange={(e) =>
-              setNotes(e.target.value)
+              setNotes(
+                e.target.value
+              )
             }
             placeholder="Digite o motivo da reprovação ou alguma observação..."
             rows={3}
@@ -2358,13 +2648,27 @@ function AdminDocumentCard({
    ========================================================= */
 
 export default function App() {
-  const [session, setSession] = useState(null);
-  const [page, setPage] = useState("home");
-  const [authMode, setAuthMode] = useState("login");
-  const [checkingSession, setCheckingSession] =
-    useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [checkingRole, setCheckingRole] = useState(false);
+  const [session, setSession] =
+    useState(null);
+
+  const [page, setPage] =
+    useState("home");
+
+  const [authMode, setAuthMode] =
+    useState("login");
+
+  const [
+    checkingSession,
+    setCheckingSession,
+  ] = useState(true);
+
+  const [isAdmin, setIsAdmin] =
+    useState(false);
+
+  const [
+    checkingRole,
+    setCheckingRole,
+  ] = useState(false);
 
   async function checkAdminRole(user) {
     if (!user) {
@@ -2375,7 +2679,10 @@ export default function App() {
     setCheckingRole(true);
 
     try {
-      const { data, error } = await supabase
+      const {
+        data,
+        error,
+      } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", user.id)
@@ -2407,52 +2714,78 @@ export default function App() {
 
     async function loadSession() {
       const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
+        data: {
+          session:
+            currentSession,
+        },
+      } =
+        await supabase.auth.getSession();
 
       if (!mounted) return;
 
-      setSession(currentSession);
+      setSession(
+        currentSession
+      );
 
-      if (currentSession?.user) {
-        const admin = await checkAdminRole(
-          currentSession.user
-        );
+      if (
+        currentSession?.user
+      ) {
+        const admin =
+          await checkAdminRole(
+            currentSession.user
+          );
 
         if (admin) {
           setPage("admin");
         } else {
-          setPage("dashboard");
+          setPage(
+            "dashboard"
+          );
         }
       }
 
-      setCheckingSession(false);
+      setCheckingSession(
+        false
+      );
     }
 
     loadSession();
 
     const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      async (_event, newSession) => {
-        setSession(newSession);
-
-        if (newSession?.user) {
-          const admin = await checkAdminRole(
-            newSession.user
+      data: {
+        subscription,
+      },
+    } =
+      supabase.auth.onAuthStateChange(
+        async (
+          _event,
+          newSession
+        ) => {
+          setSession(
+            newSession
           );
 
-          if (admin) {
-            setPage("admin");
+          if (
+            newSession?.user
+          ) {
+            const admin =
+              await checkAdminRole(
+                newSession.user
+              );
+
+            if (admin) {
+              setPage("admin");
+            } else {
+              setPage(
+                "dashboard"
+              );
+            }
           } else {
-            setPage("dashboard");
+            setIsAdmin(false);
+            setPage("home");
           }
-        } else {
-          setIsAdmin(false);
-          setPage("home");
         }
-      }
-    );
+      );
 
     return () => {
       mounted = false;
@@ -2462,14 +2795,19 @@ export default function App() {
 
   function downloadChecklist() {
     const link =
-      document.createElement("a");
+      document.createElement(
+        "a"
+      );
 
-    link.href = checklistUrl;
+    link.href =
+      checklistUrl;
 
     link.download =
       "F103-04 - CheckList de Inspeção de Fornecedores.docx";
 
-    document.body.appendChild(link);
+    document.body.appendChild(
+      link
+    );
 
     link.click();
 
@@ -2484,7 +2822,10 @@ export default function App() {
     setPage("home");
   }
 
-  if (checkingSession || checkingRole) {
+  if (
+    checkingSession ||
+    checkingRole
+  ) {
     return (
       <div className="app-loading">
         Carregando portal...
@@ -2497,7 +2838,9 @@ export default function App() {
       <Header
         session={session}
         isAdmin={isAdmin}
-        onAdmin={() => setPage("admin")}
+        onAdmin={() =>
+          setPage("admin")
+        }
         onLogout={logout}
         onHome={() =>
           setPage(
@@ -2508,7 +2851,9 @@ export default function App() {
               : "home"
           )
         }
-        onDownload={downloadChecklist}
+        onDownload={
+          downloadChecklist
+        }
       />
 
       {page === "home" && (
@@ -2521,33 +2866,38 @@ export default function App() {
             setAuthMode("signup");
             setPage("auth");
           }}
-          onDownload={downloadChecklist}
-        />
-      )}
-
-      {page === "auth" && !session && (
-        <AuthPage
-          mode={authMode}
-          setMode={setAuthMode}
-          onBack={() =>
-            setPage("home")
+          onDownload={
+            downloadChecklist
           }
         />
       )}
 
+      {page === "auth" &&
+        !session && (
+          <AuthPage
+            mode={authMode}
+            setMode={
+              setAuthMode
+            }
+            onBack={() =>
+              setPage("home")
+            }
+          />
+        )}
+
       {page === "dashboard" &&
         session &&
         !isAdmin && (
-          <SupplierDashboard
-            onLogout={logout}
-          />
+          <SupplierDashboard />
         )}
 
       {page === "admin" &&
         session &&
         isAdmin && (
           <AdminDashboard
-            onBack={() => setPage("home")}
+            onBack={() =>
+              setPage("home")
+            }
           />
         )}
 
