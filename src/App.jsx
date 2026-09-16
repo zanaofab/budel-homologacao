@@ -50,7 +50,8 @@ const DOCUMENTS = [
   {
     type: "bombeiro",
     label: "Corpo de Bombeiros",
-    description: "Certificado ou documento emitido pelo Corpo de Bombeiros.",
+    description:
+      "Certificado ou documento emitido pelo Corpo de Bombeiros.",
     required: false,
     expires: true,
   },
@@ -101,10 +102,12 @@ const DOCUMENTS = [
   {
     type: "outros",
     label: "Outros documentos",
-    description: "Documentos complementares que julgar necessários.",
+    description:
+      "Documentos complementares que julgar necessários.",
     required: false,
     expires: true,
     multiple: true,
+    customMetadata: true,
   },
 ];
 
@@ -143,14 +146,18 @@ function adminIsViewOnly(profile) {
 
 function adminCanReview(profile) {
   if (!profile || profile.role !== "admin") return false;
+
   if (profile.admin_can_manage_users) return true;
+
   if (adminIsViewOnly(profile)) return false;
+
   return true;
 }
 
 function adminCanManageUsers(profile) {
   return Boolean(
-    profile?.role === "admin" && profile?.admin_can_manage_users === true
+    profile?.role === "admin" &&
+      profile?.admin_can_manage_users === true
   );
 }
 
@@ -170,19 +177,6 @@ function adminCanViewCompany(profile, modality) {
   return keywords.some((keyword) =>
     normalizedModality.includes(keyword)
   );
-}
-
-function calculateExpiryDate(issueDate) {
-  if (!issueDate) return "";
-
-  const date = new Date(`${issueDate}T12:00:00`);
-
-  if (Number.isNaN(date.getTime())) return "";
-
-  date.setFullYear(date.getFullYear() + 1);
-  date.setDate(date.getDate() - 1);
-
-  return date.toISOString().slice(0, 10);
 }
 
 function daysUntil(dateString) {
@@ -218,7 +212,10 @@ function expiryStatus(dateString) {
   if (days <= 15) {
     return {
       className: "status-warning",
-      label: days === 0 ? "Vence hoje" : `Vence em ${days} dia(s)`,
+      label:
+        days === 0
+          ? "Vence hoje"
+          : `Vence em ${days} dia(s)`,
     };
   }
 
@@ -239,7 +236,9 @@ function formatDate(dateString) {
 }
 
 function formatCnpj(value) {
-  const digits = String(value || "").replace(/\D/g, "").slice(0, 14);
+  const digits = String(value || "")
+    .replace(/\D/g, "")
+    .slice(0, 14);
 
   return digits
     .replace(/^(\d{2})(\d)/, "$1.$2")
@@ -255,7 +254,10 @@ function getDocumentDefinition(type) {
 function getDocumentFiles(document) {
   if (!document) return [];
 
-  if (Array.isArray(document.files) && document.files.length) {
+  if (
+    Array.isArray(document.files) &&
+    document.files.length
+  ) {
     return document.files;
   }
 
@@ -273,6 +275,56 @@ function getDocumentFiles(document) {
 
 function getCompanyStatusLabel(status) {
   return COMPANY_STATUS_LABELS[status] || status || "—";
+}
+
+function isValidDate(value) {
+  if (!value) return false;
+
+  const date = new Date(`${value}T12:00:00`);
+
+  return !Number.isNaN(date.getTime());
+}
+
+function normalizeOtherDocumentFile(file) {
+  return {
+    path: file?.path || "",
+    name: file?.name || "Documento",
+    title: file?.title || file?.name || "Documento",
+    issue_date: file?.issue_date || "",
+    expiry_date: file?.expiry_date || "",
+    expiry_text: file?.expiry_text || "",
+  };
+}
+
+function getOtherDocumentFiles(document) {
+  return getDocumentFiles(document).map(
+    normalizeOtherDocumentFile
+  );
+}
+
+function getOtherDocumentExpiryLabel(file) {
+  if (file?.expiry_text?.trim()) {
+    return file.expiry_text;
+  }
+
+  if (file?.expiry_date) {
+    return formatDate(file.expiry_date);
+  }
+
+  return "Validade não informada";
+}
+
+function getOtherDocumentExpiryStatus(file) {
+  if (!file?.expiry_date) {
+    return {
+      className: "",
+      label: file?.expiry_text?.trim()
+        ? file.expiry_text
+        : "Validade não informada",
+    };
+  }
+
+  return expiryStatus(file.expiry_date);
 }
 
 function App() {
@@ -306,16 +358,18 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      setSession(newSession);
+    } = supabase.auth.onAuthStateChange(
+      async (_event, newSession) => {
+        setSession(newSession);
 
-      if (newSession?.user) {
-        await loadProfile(newSession.user.id);
-      } else {
-        setProfile(null);
-        setPage("home");
+        if (newSession?.user) {
+          await loadProfile(newSession.user.id);
+        } else {
+          setProfile(null);
+          setPage("home");
+        }
       }
-    });
+    );
 
     return () => {
       mounted = false;
@@ -346,6 +400,7 @@ function App() {
 
   async function handleSignOut() {
     await supabase.auth.signOut();
+
     setSelectedCompany(null);
     setPage("home");
   }
@@ -377,7 +432,11 @@ function App() {
           profile={profile}
           onStart={() => {
             if (session) {
-              setPage(profile?.role === "admin" ? "admin" : "supplier");
+              setPage(
+                profile?.role === "admin"
+                  ? "admin"
+                  : "supplier"
+              );
             } else {
               setPage("login");
             }
@@ -395,7 +454,9 @@ function App() {
             setSession(currentSession);
 
             if (currentSession?.user) {
-              await loadProfile(currentSession.user.id);
+              await loadProfile(
+                currentSession.user.id
+              );
             }
           }}
           onSignup={() => setPage("signup")}
@@ -410,38 +471,44 @@ function App() {
         />
       )}
 
-      {page === "supplier" && session && profile?.role !== "admin" && (
-        <SupplierDashboard
-          session={session}
-          profile={profile}
-          onOpenCompany={(company) => {
-            setSelectedCompany(company);
-            setPage("company");
-          }}
-        />
-      )}
+      {page === "supplier" &&
+        session &&
+        profile?.role !== "admin" && (
+          <SupplierDashboard
+            session={session}
+            profile={profile}
+            onOpenCompany={(company) => {
+              setSelectedCompany(company);
+              setPage("company");
+            }}
+          />
+        )}
 
-      {page === "company" && selectedCompany && session && (
-        <SupplierCompanyPage
-          session={session}
-          company={selectedCompany}
-          onBack={() => {
-            setSelectedCompany(null);
-            setPage("supplier");
-          }}
-        />
-      )}
+      {page === "company" &&
+        selectedCompany &&
+        session && (
+          <SupplierCompanyPage
+            session={session}
+            company={selectedCompany}
+            onBack={() => {
+              setSelectedCompany(null);
+              setPage("supplier");
+            }}
+          />
+        )}
 
-      {page === "admin" && session && profile?.role === "admin" && (
-        <AdminDashboard
-          session={session}
-          adminProfile={profile}
-          onOpenCompany={(company) => {
-            setSelectedCompany(company);
-            setPage("admin-company");
-          }}
-        />
-      )}
+      {page === "admin" &&
+        session &&
+        profile?.role === "admin" && (
+          <AdminDashboard
+            session={session}
+            adminProfile={profile}
+            onOpenCompany={(company) => {
+              setSelectedCompany(company);
+              setPage("admin-company");
+            }}
+          />
+        )}
 
       {page === "admin-company" &&
         selectedCompany &&
@@ -486,27 +553,29 @@ function Header({
         </button>
 
         <div className="header-actions">
-          {session && profile?.role === "admin" && (
-            <button
-              type="button"
-              className="header-link"
-              onClick={onAdmin}
-            >
-              <ShieldCheck size={16} />
-              Administração
-            </button>
-          )}
+          {session &&
+            profile?.role === "admin" && (
+              <button
+                type="button"
+                className="header-link"
+                onClick={onAdmin}
+              >
+                <ShieldCheck size={16} />
+                Administração
+              </button>
+            )}
 
-          {session && profile?.role !== "admin" && (
-            <button
-              type="button"
-              className="header-link"
-              onClick={onSupplier}
-            >
-              <FolderOpen size={16} />
-              Meus CNPJs
-            </button>
-          )}
+          {session &&
+            profile?.role !== "admin" && (
+              <button
+                type="button"
+                className="header-link"
+                onClick={onSupplier}
+              >
+                <FolderOpen size={16} />
+                Meus CNPJs
+              </button>
+            )}
 
           {!session ? (
             <button
@@ -533,7 +602,11 @@ function Header({
   );
 }
 
-function HomePage({ session, profile, onStart }) {
+function HomePage({
+  session,
+  profile,
+  onStart,
+}) {
   return (
     <main className="page">
       <section className="hero-section">
@@ -546,8 +619,9 @@ function HomePage({ session, profile, onStart }) {
           <h1>Homologação de Fornecedores</h1>
 
           <p>
-            Envie e acompanhe a documentação necessária para homologação de
-            fornecedores da Budel Transportes.
+            Envie e acompanhe a documentação necessária
+            para homologação de fornecedores da Budel
+            Transportes.
           </p>
 
           <button
@@ -556,6 +630,7 @@ function HomePage({ session, profile, onStart }) {
             onClick={onStart}
           >
             <Upload size={18} />
+
             {session
               ? profile?.role === "admin"
                 ? "Acessar administração"
@@ -568,11 +643,18 @@ function HomePage({ session, profile, onStart }) {
   );
 }
 
-function LoginPage({ onSuccess, onSignup, onBack }) {
+function LoginPage({
+  onSuccess,
+  onSignup,
+  onBack,
+}) {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [password, setPassword] =
+    useState("");
+  const [loading, setLoading] =
+    useState(false);
+  const [message, setMessage] =
+    useState("");
 
   async function handleLogin(event) {
     event.preventDefault();
@@ -580,10 +662,11 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
     setLoading(true);
     setMessage("");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    const { error } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
     if (error) {
       setMessage(error.message);
@@ -614,17 +697,24 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
 
           <div>
             <h1>Entrar</h1>
-            <p>Acesse o portal de homologação.</p>
+            <p>
+              Acesse o portal de homologação.
+            </p>
           </div>
         </div>
 
-        <form onSubmit={handleLogin} className="form">
+        <form
+          onSubmit={handleLogin}
+          className="form"
+        >
           <label>
             E-mail
             <input
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               required
             />
           </label>
@@ -634,12 +724,18 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
             <input
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
               required
             />
           </label>
 
-          {message && <div className="form-message error">{message}</div>}
+          {message && (
+            <div className="form-message error">
+              {message}
+            </div>
+          )}
 
           <button
             className="primary-button"
@@ -648,7 +744,10 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
           >
             {loading ? (
               <>
-                <RefreshCw size={17} className="spin" />
+                <RefreshCw
+                  size={17}
+                  className="spin"
+                />
                 Entrando...
               </>
             ) : (
@@ -661,7 +760,9 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
         </form>
 
         <div className="auth-footer">
-          <span>Ainda não possui acesso?</span>
+          <span>
+            Ainda não possui acesso?
+          </span>
 
           <button
             type="button"
@@ -676,14 +777,24 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
   );
 }
 
-function SignupPage({ onBack, onSuccess }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [success, setSuccess] = useState(false);
+function SignupPage({
+  onBack,
+  onSuccess,
+}) {
+  const [name, setName] =
+    useState("");
+  const [email, setEmail] =
+    useState("");
+  const [password, setPassword] =
+    useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
+  const [loading, setLoading] =
+    useState(false);
+  const [message, setMessage] =
+    useState("");
+  const [success, setSuccess] =
+    useState(false);
 
   async function handleSignup(event) {
     event.preventDefault();
@@ -691,27 +802,33 @@ function SignupPage({ onBack, onSuccess }) {
     setMessage("");
 
     if (password !== confirmPassword) {
-      setMessage("As senhas não são iguais.");
+      setMessage(
+        "As senhas não são iguais."
+      );
       return;
     }
 
     if (password.length < 6) {
-      setMessage("A senha deve ter pelo menos 6 caracteres.");
+      setMessage(
+        "A senha deve ter pelo menos 6 caracteres."
+      );
       return;
     }
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: {
-          full_name: name.trim(),
+    const { error } =
+      await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: name.trim(),
+          },
+          emailRedirectTo:
+            window.location.origin,
         },
-        emailRedirectTo: window.location.origin,
-      },
-    });
+      });
 
     if (error) {
       setMessage(error.message);
@@ -734,8 +851,10 @@ function SignupPage({ onBack, onSuccess }) {
           <h1>Conta criada!</h1>
 
           <p>
-            Enviamos um e-mail de confirmação para o endereço informado.
-            Confirme seu e-mail para acessar o portal.
+            Enviamos um e-mail de confirmação
+            para o endereço informado.
+            Confirme seu e-mail para acessar
+            o portal.
           </p>
 
           <button
@@ -770,16 +889,23 @@ function SignupPage({ onBack, onSuccess }) {
 
           <div>
             <h1>Criar conta</h1>
-            <p>Cadastre o acesso da sua empresa.</p>
+            <p>
+              Cadastre o acesso da sua empresa.
+            </p>
           </div>
         </div>
 
-        <form onSubmit={handleSignup} className="form">
+        <form
+          onSubmit={handleSignup}
+          className="form"
+        >
           <label>
             Nome
             <input
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) =>
+                setName(event.target.value)
+              }
               required
             />
           </label>
@@ -789,7 +915,9 @@ function SignupPage({ onBack, onSuccess }) {
             <input
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               required
             />
           </label>
@@ -799,7 +927,9 @@ function SignupPage({ onBack, onSuccess }) {
             <input
               type="password"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
               required
             />
           </label>
@@ -810,13 +940,19 @@ function SignupPage({ onBack, onSuccess }) {
               type="password"
               value={confirmPassword}
               onChange={(event) =>
-                setConfirmPassword(event.target.value)
+                setConfirmPassword(
+                  event.target.value
+                )
               }
               required
             />
           </label>
 
-          {message && <div className="form-message error">{message}</div>}
+          {message && (
+            <div className="form-message error">
+              {message}
+            </div>
+          )}
 
           <button
             className="primary-button"
@@ -825,7 +961,10 @@ function SignupPage({ onBack, onSuccess }) {
           >
             {loading ? (
               <>
-                <RefreshCw size={17} className="spin" />
+                <RefreshCw
+                  size={17}
+                  className="spin"
+                />
                 Criando...
               </>
             ) : (
@@ -841,20 +980,31 @@ function SignupPage({ onBack, onSuccess }) {
   );
 }
 
-function SupplierDashboard({ session, profile, onOpenCompany }) {
-  const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [message, setMessage] = useState("");
+function SupplierDashboard({
+  session,
+  profile,
+  onOpenCompany,
+}) {
+  const [companies, setCompanies] =
+    useState([]);
+  const [loading, setLoading] =
+    useState(true);
+  const [showCreate, setShowCreate] =
+    useState(false);
+  const [message, setMessage] =
+    useState("");
 
   async function loadCompanies() {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .eq("owner_id", session.user.id)
-      .order("created_at", { ascending: false });
+    const { data, error } =
+      await supabase
+        .from("companies")
+        .select("*")
+        .eq("owner_id", session.user.id)
+        .order("created_at", {
+          ascending: false,
+        });
 
     if (error) {
       setMessage(error.message);
@@ -876,11 +1026,12 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
 
     if (!confirmed) return;
 
-    const { error } = await supabase
-      .from("companies")
-      .delete()
-      .eq("id", company.id)
-      .eq("owner_id", session.user.id);
+    const { error } =
+      await supabase
+        .from("companies")
+        .delete()
+        .eq("id", company.id)
+        .eq("owner_id", session.user.id);
 
     if (error) {
       setMessage(error.message);
@@ -894,8 +1045,12 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
     <main className="page">
       <div className="dashboard-heading">
         <div>
-          <div className="section-kicker">Portal do fornecedor</div>
+          <div className="section-kicker">
+            Portal do fornecedor
+          </div>
+
           <h1>Meus CNPJs</h1>
+
           <p>
             {profile?.full_name
               ? `Olá, ${profile.full_name}.`
@@ -906,32 +1061,46 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
         <button
           type="button"
           className="primary-button"
-          onClick={() => setShowCreate(true)}
+          onClick={() =>
+            setShowCreate(true)
+          }
         >
           <Plus size={17} />
           Cadastrar CNPJ
         </button>
       </div>
 
-      {message && <div className="form-message error">{message}</div>}
+      {message && (
+        <div className="form-message error">
+          {message}
+        </div>
+      )}
 
       {loading ? (
         <div className="loading-box">
-          <RefreshCw size={22} className="spin" />
+          <RefreshCw
+            size={22}
+            className="spin"
+          />
           Carregando...
         </div>
       ) : companies.length === 0 ? (
         <div className="empty-state">
           <FolderOpen size={38} />
+
           <h2>Nenhum CNPJ cadastrado</h2>
+
           <p>
-            Cadastre o primeiro CNPJ para começar o processo de homologação.
+            Cadastre o primeiro CNPJ para começar o processo de
+            homologação.
           </p>
 
           <button
             type="button"
             className="secondary-button"
-            onClick={() => setShowCreate(true)}
+            onClick={() =>
+              setShowCreate(true)
+            }
           >
             <Plus size={17} />
             Cadastrar CNPJ
@@ -940,19 +1109,31 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
       ) : (
         <div className="company-grid">
           {companies.map((company) => (
-            <article className="company-card" key={company.id}>
+            <article
+              className="company-card"
+              key={company.id}
+            >
               <button
                 type="button"
                 className="company-card-main"
-                onClick={() => onOpenCompany(company)}
+                onClick={() =>
+                  onOpenCompany(company)
+                }
               >
                 <div className="company-icon">
                   <FileCheck2 size={23} />
                 </div>
 
                 <div className="company-content">
-                  <h2>{company.legal_name}</h2>
-                  <p>{formatCnpj(company.cnpj)}</p>
+                  <h2>
+                    {company.legal_name}
+                  </h2>
+
+                  <p>
+                    {formatCnpj(
+                      company.cnpj
+                    )}
+                  </p>
 
                   <div className="company-modality">
                     {company.modality ||
@@ -961,7 +1142,9 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
 
                   <div className="company-card-status">
                     <StatusBadge
-                      status={company.submission_status}
+                      status={
+                        company.submission_status
+                      }
                       label={getCompanyStatusLabel(
                         company.submission_status
                       )}
@@ -969,7 +1152,10 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
                   </div>
                 </div>
 
-                <ChevronRight size={20} className="company-arrow" />
+                <ChevronRight
+                  size={20}
+                  className="company-arrow"
+                />
               </button>
 
               <button
@@ -991,7 +1177,9 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
       {showCreate && (
         <CreateCompanyModal
           session={session}
-          onClose={() => setShowCreate(false)}
+          onClose={() =>
+            setShowCreate(false)
+          }
           onCreated={async (company) => {
             setShowCreate(false);
             await loadCompanies();
@@ -1003,38 +1191,51 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
   );
 }
 
-function CreateCompanyModal({ session, onClose, onCreated }) {
-  const [legalName, setLegalName] = useState("");
-  const [cnpj, setCnpj] = useState("");
-  const [modality, setModality] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+function CreateCompanyModal({
+  session,
+  onClose,
+  onCreated,
+}) {
+  const [legalName, setLegalName] =
+    useState("");
+  const [cnpj, setCnpj] =
+    useState("");
+  const [modality, setModality] =
+    useState("");
+  const [loading, setLoading] =
+    useState(false);
+  const [message, setMessage] =
+    useState("");
 
   async function handleCreate(event) {
     event.preventDefault();
 
     setMessage("");
 
-    const cleanCnpj = cnpj.replace(/\D/g, "");
+    const cleanCnpj =
+      cnpj.replace(/\D/g, "");
 
     if (cleanCnpj.length !== 14) {
-      setMessage("Informe um CNPJ válido com 14 números.");
+      setMessage(
+        "Informe um CNPJ válido com 14 números."
+      );
       return;
     }
 
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("companies")
-      .insert({
-        owner_id: session.user.id,
-        legal_name: legalName.trim(),
-        cnpj: cleanCnpj,
-        modality: modality.trim(),
-        submission_status: "draft",
-      })
-      .select()
-      .single();
+    const { data, error } =
+      await supabase
+        .from("companies")
+        .insert({
+          owner_id: session.user.id,
+          legal_name: legalName.trim(),
+          cnpj: cleanCnpj,
+          modality: modality.trim(),
+          submission_status: "draft",
+        })
+        .select()
+        .single();
 
     if (error) {
       setMessage(error.message);
@@ -1064,16 +1265,25 @@ function CreateCompanyModal({ session, onClose, onCreated }) {
 
           <div>
             <h2>Cadastrar CNPJ</h2>
-            <p>Informe os dados da empresa.</p>
+            <p>
+              Informe os dados da empresa.
+            </p>
           </div>
         </div>
 
-        <form onSubmit={handleCreate} className="form">
+        <form
+          onSubmit={handleCreate}
+          className="form"
+        >
           <label>
             Razão Social
             <input
               value={legalName}
-              onChange={(event) => setLegalName(event.target.value)}
+              onChange={(event) =>
+                setLegalName(
+                  event.target.value
+                )
+              }
               required
             />
           </label>
@@ -1082,7 +1292,11 @@ function CreateCompanyModal({ session, onClose, onCreated }) {
             CNPJ
             <input
               value={formatCnpj(cnpj)}
-              onChange={(event) => setCnpj(event.target.value)}
+              onChange={(event) =>
+                setCnpj(
+                  event.target.value
+                )
+              }
               placeholder="00.000.000/0000-00"
               required
             />
@@ -1092,14 +1306,22 @@ function CreateCompanyModal({ session, onClose, onCreated }) {
             Serviço/atividade fornecida à Budel
             <textarea
               value={modality}
-              onChange={(event) => setModality(event.target.value)}
+              onChange={(event) =>
+                setModality(
+                  event.target.value
+                )
+              }
               placeholder="Ex.: Lavagem de caminhões, manutenção de suspensão, solda..."
               rows={4}
               required
             />
           </label>
 
-          {message && <div className="form-message error">{message}</div>}
+          {message && (
+            <div className="form-message error">
+              {message}
+            </div>
+          )}
 
           <div className="form-actions">
             <button
@@ -1117,7 +1339,10 @@ function CreateCompanyModal({ session, onClose, onCreated }) {
             >
               {loading ? (
                 <>
-                  <RefreshCw size={16} className="spin" />
+                  <RefreshCw
+                    size={16}
+                    className="spin"
+                  />
                   Salvando...
                 </>
               ) : (
@@ -1134,21 +1359,33 @@ function CreateCompanyModal({ session, onClose, onCreated }) {
   );
 }
 
-function SupplierCompanyPage({ session, company, onBack }) {
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [submissionLoading, setSubmissionLoading] = useState(false);
+function SupplierCompanyPage({
+  session,
+  company,
+  onBack,
+}) {
+  const [documents, setDocuments] =
+    useState([]);
+  const [loading, setLoading] =
+    useState(true);
+  const [message, setMessage] =
+    useState("");
+  const [saving, setSaving] =
+    useState(false);
+  const [submissionLoading, setSubmissionLoading] =
+    useState(false);
 
   async function loadDocuments() {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("documents")
-      .select("*")
-      .eq("company_id", company.id)
-      .order("created_at", { ascending: true });
+    const { data, error } =
+      await supabase
+        .from("documents")
+        .select("*")
+        .eq("company_id", company.id)
+        .order("created_at", {
+          ascending: true,
+        });
 
     if (error) {
       setMessage(error.message);
@@ -1167,49 +1404,97 @@ function SupplierCompanyPage({ session, company, onBack }) {
     setSaving(true);
     setMessage("");
 
-    const existing = documents.find(
-      (item) => item.type === payload.type
-    );
+    const existing =
+      documents.find(
+        (item) =>
+          item.type === payload.type
+      );
+
+    const files =
+      payload.not_available
+        ? []
+        : payload.files ||
+          getDocumentFiles(existing);
+
+    const firstFile =
+      files?.[0] || null;
+
+    const hasNewFiles =
+      Boolean(payload.files?.length);
+
+    const wasRejected =
+      existing?.review_status ===
+      "rejected";
 
     const updateData = {
       company_id: company.id,
       type: payload.type,
+
       file_path:
-        payload.files?.[0]?.path || existing?.file_path || null,
+        firstFile?.path || null,
+
       original_name:
-        payload.files?.[0]?.name ||
-        existing?.original_name ||
+        firstFile?.name || null,
+
+      files,
+
+      issue_date:
+        payload.issue_date || null,
+
+      expiry_date:
+        payload.expiry_date || null,
+
+      not_available:
+        Boolean(payload.not_available),
+
+      notes:
+        payload.notes ||
+        existing?.notes ||
         null,
-      files: payload.files || getDocumentFiles(existing),
-      issue_date: payload.issue_date || null,
-      expiry_date: payload.expiry_date || null,
-      not_available: Boolean(payload.not_available),
-      notes: payload.notes || existing?.notes || null,
+
       review_status:
-        existing?.review_status === "rejected" &&
-        payload.files?.length
+        wasRejected &&
+        (hasNewFiles ||
+          payload.not_available)
           ? "pending"
-          : existing?.review_status || "pending",
+          : existing?.review_status ||
+            "pending",
+
       reviewed_at:
-        existing?.review_status === "rejected" &&
-        payload.files?.length
+        wasRejected &&
+        (hasNewFiles ||
+          payload.not_available)
           ? null
-          : existing?.reviewed_at || null,
+          : existing?.reviewed_at ||
+            null,
+
       reviewed_by:
-        existing?.review_status === "rejected" &&
-        payload.files?.length
+        wasRejected &&
+        (hasNewFiles ||
+          payload.not_available)
           ? null
-          : existing?.reviewed_by || null,
+          : existing?.reviewed_by ||
+            null,
+
       review_notes:
-        existing?.review_status === "rejected" &&
-        payload.files?.length
+        wasRejected &&
+        (hasNewFiles ||
+          payload.not_available)
           ? null
-          : existing?.review_notes || null,
+          : existing?.review_notes ||
+            null,
     };
 
-    const { error } = await supabase
-      .from("documents")
-      .upsert(updateData, { onConflict: "company_id,type" });
+    const { error } =
+      await supabase
+        .from("documents")
+        .upsert(
+          updateData,
+          {
+            onConflict:
+              "company_id,type",
+          }
+        );
 
     if (error) {
       setMessage(error.message);
@@ -1223,22 +1508,39 @@ function SupplierCompanyPage({ session, company, onBack }) {
     return true;
   }
 
-  async function uploadFiles(type, files) {
+  async function uploadFiles(
+    type,
+    files
+  ) {
     const uploaded = [];
 
     for (const file of files) {
-      const safeName = file.name
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      const safeName =
+        file.name
+          .normalize("NFD")
+          .replace(
+            /[\u0300-\u036f]/g,
+            ""
+          )
+          .replace(
+            /[^a-zA-Z0-9._-]/g,
+            "_"
+          );
 
       const path = `${session.user.id}/${company.id}/${type}/${Date.now()}_${safeName}`;
 
-      const { error } = await supabase.storage
-        .from("supplier-documents")
-        .upload(path, file, {
-          upsert: false,
-        });
+      const { error } =
+        await supabase.storage
+          .from(
+            "supplier-documents"
+          )
+          .upload(
+            path,
+            file,
+            {
+              upsert: false,
+            }
+          );
 
       if (error) {
         throw error;
@@ -1253,17 +1555,113 @@ function SupplierCompanyPage({ session, company, onBack }) {
     return uploaded;
   }
 
-  async function handleDocumentSave(type, data) {
+  async function handleDocumentSave(
+    type,
+    data
+  ) {
     try {
-      let files = data.files || [];
+      if (
+        type === "outros"
+      ) {
+        let otherFiles =
+          data.otherFiles || [];
 
-      if (data.fileObjects?.length) {
-        const uploaded = await uploadFiles(
-          type,
-          data.fileObjects
-        );
+        const newFileObjects =
+          otherFiles.filter(
+            (item) => item.file
+          );
 
-        files = [...files, ...uploaded];
+        if (
+          newFileObjects.length
+        ) {
+          const uploaded =
+            await uploadFiles(
+              type,
+              newFileObjects.map(
+                (item) => item.file
+              )
+            );
+
+          let uploadIndex = 0;
+
+          otherFiles =
+            otherFiles.map(
+              (item) => {
+                if (!item.file) {
+                  return item;
+                }
+
+                const uploadedFile =
+                  uploaded[
+                    uploadIndex
+                  ];
+
+                uploadIndex += 1;
+
+                return {
+                  ...item,
+                  path:
+                    uploadedFile.path,
+                  name:
+                    uploadedFile.name,
+                  file: null,
+                };
+              }
+            );
+        }
+
+        const cleanedFiles =
+          otherFiles.map(
+            (file) => ({
+              path:
+                file.path || "",
+              name:
+                file.name ||
+                "Documento",
+              title:
+                file.title ||
+                file.name ||
+                "Documento",
+              issue_date:
+                file.issue_date || "",
+              expiry_date:
+                file.expiry_date ||
+                "",
+              expiry_text:
+                file.expiry_text ||
+                "",
+            })
+          );
+
+        await saveDocument({
+          ...data,
+          files:
+            cleanedFiles,
+          not_available:
+            Boolean(
+              data.not_available
+            ),
+        });
+
+        return;
+      }
+
+      let files =
+        data.files || [];
+
+      if (
+        data.fileObjects?.length
+      ) {
+        const uploaded =
+          await uploadFiles(
+            type,
+            data.fileObjects
+          );
+
+        files = [
+          ...files,
+          ...uploaded,
+        ];
       }
 
       await saveDocument({
@@ -1272,8 +1670,10 @@ function SupplierCompanyPage({ session, company, onBack }) {
       });
     } catch (error) {
       setMessage(
-        error.message || "Não foi possível enviar o arquivo."
+        error.message ||
+          "Não foi possível enviar o arquivo."
       );
+
       setSaving(false);
     }
   }
@@ -1285,15 +1685,25 @@ function SupplierCompanyPage({ session, company, onBack }) {
     const missing = [];
 
     for (const item of DOCUMENTS) {
-      const document = documents.find(
-        (doc) => doc.type === item.type
-      );
+      const document =
+        documents.find(
+          (doc) =>
+            doc.type === item.type
+        );
 
-      const files = getDocumentFiles(document);
+      const files =
+        getDocumentFiles(
+          document
+        );
 
       if (item.required) {
-        if (!files.length) {
-          missing.push(item.label);
+        if (
+          !files.length ||
+          document?.not_available
+        ) {
+          missing.push(
+            `${item.label} — documento obrigatório`
+          );
           continue;
         }
       } else if (
@@ -1306,31 +1716,152 @@ function SupplierCompanyPage({ session, company, onBack }) {
         continue;
       }
 
-      if (item.expires && files.length) {
-        if (!document?.issue_date || !document?.expiry_date) {
+      if (
+        item.type === "outros"
+      ) {
+        if (
+          document?.not_available
+        ) {
+          continue;
+        }
+
+        if (!files.length) {
           missing.push(
-            `${item.label} — informe a data de emissão`
+            `${item.label} — envie pelo menos um documento ou marque "Não possuímos"`
           );
           continue;
         }
 
-        const expectedExpiry = calculateExpiryDate(
-          document.issue_date
+        files.forEach(
+          (file, index) => {
+            const number =
+              index + 1;
+
+            if (
+              !file?.title?.trim()
+            ) {
+              missing.push(
+                `${item.label} — documento ${number}: informe o título`
+              );
+            }
+
+            if (
+              !file?.issue_date ||
+              !isValidDate(
+                file.issue_date
+              )
+            ) {
+              missing.push(
+                `${item.label} — documento ${number}: informe uma data de emissão válida`
+              );
+            }
+
+            const hasExpiryDate =
+              Boolean(
+                file?.expiry_date
+              );
+
+            const hasExpiryText =
+              Boolean(
+                file?.expiry_text?.trim()
+              );
+
+            if (
+              hasExpiryDate &&
+              hasExpiryText
+            ) {
+              missing.push(
+                `${item.label} — documento ${number}: informe a validade por data OU por texto, não os dois`
+              );
+            }
+
+            if (
+              !hasExpiryDate &&
+              !hasExpiryText
+            ) {
+              missing.push(
+                `${item.label} — documento ${number}: informe a validade`
+              );
+            }
+
+            if (
+              hasExpiryDate
+            ) {
+              if (
+                !isValidDate(
+                  file.expiry_date
+                )
+              ) {
+                missing.push(
+                  `${item.label} — documento ${number}: data de validade inválida`
+                );
+              } else {
+                const days =
+                  daysUntil(
+                    file.expiry_date
+                  );
+
+                if (
+                  days !== null &&
+                  days < 0
+                ) {
+                  missing.push(
+                    `${item.label} — documento ${number}: documento vencido`
+                  );
+                }
+              }
+            }
+          }
         );
 
-        if (document.expiry_date !== expectedExpiry) {
+        continue;
+      }
+
+      if (
+        item.expires &&
+        files.length
+      ) {
+        if (
+          !document?.issue_date ||
+          !isValidDate(
+            document.issue_date
+          )
+        ) {
           missing.push(
-            `${item.label} — a validade deve ser ${formatDate(
-              expectedExpiry
-            )}`
+            `${item.label} — informe uma data de emissão válida`
           );
-          continue;
         }
 
-        const days = daysUntil(document.expiry_date);
+        if (
+          !document?.expiry_date ||
+          !isValidDate(
+            document.expiry_date
+          )
+        ) {
+          missing.push(
+            `${item.label} — informe uma data de validade válida`
+          );
+        }
 
-        if (days !== null && days < 0) {
-          missing.push(`${item.label} — documento vencido`);
+        if (
+          document?.expiry_date &&
+          isValidDate(
+            document.expiry_date
+          )
+        ) {
+          const days =
+            daysUntil(
+              document.expiry_date
+            );
+
+          if (
+            days !== null &&
+            days < 0
+          ) {
+            missing.push(
+              `${item.label} — documento vencido`
+            );
+          }
         }
       }
     }
@@ -1346,14 +1877,22 @@ function SupplierCompanyPage({ session, company, onBack }) {
       return;
     }
 
-    const { data, error } = await supabase
+    const {
+      data,
+      error,
+    } = await supabase
       .from("companies")
       .update({
-        submission_status: "submitted",
-        submitted_at: new Date().toISOString(),
+        submission_status:
+          "submitted",
+        submitted_at:
+          new Date().toISOString(),
       })
       .eq("id", company.id)
-      .eq("owner_id", session.user.id)
+      .eq(
+        "owner_id",
+        session.user.id
+      )
       .select()
       .single();
 
@@ -1363,7 +1902,10 @@ function SupplierCompanyPage({ session, company, onBack }) {
       return;
     }
 
-    Object.assign(company, data);
+    Object.assign(
+      company,
+      data
+    );
 
     setMessage(
       "Documentação enviada para homologação com sucesso."
@@ -1385,32 +1927,45 @@ function SupplierCompanyPage({ session, company, onBack }) {
             Meus CNPJs
           </button>
 
-          <div className="section-kicker">Fornecedor</div>
+          <div className="section-kicker">
+            Fornecedor
+          </div>
 
-          <h1>{company.legal_name}</h1>
+          <h1>
+            {company.legal_name}
+          </h1>
 
           <p>
-            CNPJ: {formatCnpj(company.cnpj)}
+            CNPJ:{" "}
+            {formatCnpj(
+              company.cnpj
+            )}
             <br />
             Serviço/atividade:{" "}
-            {company.modality || "Não informado"}
+            {company.modality ||
+              "Não informado"}
           </p>
         </div>
 
         <StatusBadge
-          status={company.submission_status}
+          status={
+            company.submission_status
+          }
           label={getCompanyStatusLabel(
             company.submission_status
           )}
         />
       </div>
 
-      {company.submission_status === "rejected" && (
+      {company.submission_status ===
+        "rejected" && (
         <div className="notice-card warning">
           <AlertCircle size={20} />
 
           <div>
-            <strong>Correções necessárias</strong>
+            <strong>
+              Correções necessárias
+            </strong>
 
             <p>
               Alguns documentos ou informações precisam ser corrigidos.
@@ -1419,7 +1974,9 @@ function SupplierCompanyPage({ session, company, onBack }) {
 
             {company.review_notes && (
               <p>
-                <strong>Observação da Budel:</strong>{" "}
+                <strong>
+                  Observação da Budel:
+                </strong>{" "}
                 {company.review_notes}
               </p>
             )}
@@ -1435,30 +1992,43 @@ function SupplierCompanyPage({ session, company, onBack }) {
 
       {loading ? (
         <div className="loading-box">
-          <RefreshCw size={22} className="spin" />
+          <RefreshCw
+            size={22}
+            className="spin"
+          />
           Carregando documentos...
         </div>
       ) : (
         <div className="documents-list">
-          {DOCUMENTS.map((item) => (
-            <SupplierDocumentCard
-              key={item.type}
-              item={item}
-              document={documents.find(
-                (doc) => doc.type === item.type
-              )}
-              onSave={(data) =>
-                handleDocumentSave(item.type, data)
-              }
-              saving={saving}
-            />
-          ))}
+          {DOCUMENTS.map(
+            (item) => (
+              <SupplierDocumentCard
+                key={item.type}
+                item={item}
+                document={documents.find(
+                  (doc) =>
+                    doc.type ===
+                    item.type
+                )}
+                onSave={(data) =>
+                  handleDocumentSave(
+                    item.type,
+                    data
+                  )
+                }
+                saving={saving}
+              />
+            )
+          )}
         </div>
       )}
 
       <div className="submit-section">
         <div>
-          <h2>Finalizar envio</h2>
+          <h2>
+            Finalizar envio
+          </h2>
+
           <p>
             Confira todos os documentos e envie a documentação para
             análise da Budel.
@@ -1468,19 +2038,27 @@ function SupplierCompanyPage({ session, company, onBack }) {
         <button
           type="button"
           className="primary-button"
-          onClick={submitForApproval}
+          onClick={
+            submitForApproval
+          }
           disabled={
             submissionLoading ||
-            company.submission_status === "submitted" ||
-            company.submission_status === "approved"
+            company.submission_status ===
+              "submitted" ||
+            company.submission_status ===
+              "approved"
           }
         >
           {submissionLoading ? (
             <>
-              <RefreshCw size={17} className="spin" />
+              <RefreshCw
+                size={17}
+                className="spin"
+              />
               Enviando...
             </>
-          ) : company.submission_status === "submitted" ? (
+          ) : company.submission_status ===
+            "submitted" ? (
             <>
               <Check size={17} />
               Enviado para homologação
@@ -1503,70 +2081,369 @@ function SupplierDocumentCard({
   onSave,
   saving,
 }) {
-  const [files, setFiles] = useState([]);
-  const [issueDate, setIssueDate] = useState(
-    document?.issue_date || ""
-  );
-  const [expiryDate, setExpiryDate] = useState(
-    document?.expiry_date || ""
-  );
-  const [notAvailable, setNotAvailable] = useState(
-    Boolean(document?.not_available)
-  );
-  const [fileObjects, setFileObjects] = useState([]);
-  const [message, setMessage] = useState("");
+  const isOther =
+    item.type === "outros";
 
-  useEffect(() => {
-    setFiles(getDocumentFiles(document));
-    setIssueDate(document?.issue_date || "");
-    setExpiryDate(document?.expiry_date || "");
-    setNotAvailable(Boolean(document?.not_available));
-  }, [document]);
+  const [files, setFiles] =
+    useState([]);
 
-  function handleIssueDateChange(value) {
-    setIssueDate(value);
-
-    if (item.expires && value) {
-      setExpiryDate(calculateExpiryDate(value));
-    }
-  }
-
-  function handleFiles(event) {
-    const selected = Array.from(
-      event.target.files || []
+  const [issueDate, setIssueDate] =
+    useState(
+      document?.issue_date || ""
     );
 
-    if (!selected.length) return;
+  const [expiryDate, setExpiryDate] =
+    useState(
+      document?.expiry_date || ""
+    );
+
+  const [notAvailable, setNotAvailable] =
+    useState(
+      Boolean(
+        document?.not_available
+      )
+    );
+
+  const [fileObjects, setFileObjects] =
+    useState([]);
+
+  const [otherFiles, setOtherFiles] =
+    useState([]);
+
+  const [message, setMessage] =
+    useState("");
+
+  useEffect(() => {
+    const currentFiles =
+      getDocumentFiles(
+        document
+      );
+
+    setFiles(currentFiles);
+
+    setIssueDate(
+      document?.issue_date || ""
+    );
+
+    setExpiryDate(
+      document?.expiry_date || ""
+    );
+
+    setNotAvailable(
+      Boolean(
+        document?.not_available
+      )
+    );
+
+    setFileObjects([]);
+
+    if (isOther) {
+      const normalized =
+        getOtherDocumentFiles(
+          document
+        ).map(
+          (file, index) => ({
+            ...file,
+            localId:
+              `existing-${index}-${file.path}`,
+            file: null,
+          })
+        );
+
+      setOtherFiles(
+        normalized
+      );
+    } else {
+      setOtherFiles([]);
+    }
+
+    setMessage("");
+  }, [document, isOther]);
+
+  function handleFiles(event) {
+    const selected =
+      Array.from(
+        event.target.files || []
+      );
+
+    if (!selected.length) {
+      return;
+    }
 
     if (item.multiple) {
-      setFileObjects((current) => [
-        ...current,
-        ...selected,
-      ]);
+      setFileObjects(
+        (current) => [
+          ...current,
+          ...selected,
+        ]
+      );
     } else {
-      setFileObjects([selected[0]]);
+      setFileObjects([
+        selected[0],
+      ]);
     }
 
     setNotAvailable(false);
+
+    event.target.value = "";
   }
 
-  function removeSelectedFile(index) {
-    setFileObjects((current) =>
-      current.filter(
-        (_file, fileIndex) => fileIndex !== index
-      )
+  function handleOtherFiles(event) {
+    const selected =
+      Array.from(
+        event.target.files || []
+      );
+
+    if (!selected.length) {
+      return;
+    }
+
+    setOtherFiles(
+      (current) => [
+        ...current,
+        ...selected.map(
+          (file, index) => ({
+            localId:
+              `new-${Date.now()}-${index}`,
+            file,
+            path: "",
+            name: file.name,
+            title: file.name,
+            issue_date: "",
+            expiry_date: "",
+            expiry_text: "",
+          })
+        ),
+      ]
+    );
+
+    setNotAvailable(false);
+
+    event.target.value = "";
+  }
+
+  function updateOtherFile(
+    localId,
+    field,
+    value
+  ) {
+    setOtherFiles(
+      (current) =>
+        current.map(
+          (item) =>
+            item.localId ===
+            localId
+              ? {
+                  ...item,
+                  [field]:
+                    value,
+
+                  ...(field ===
+                    "expiry_date" &&
+                  value
+                    ? {
+                        expiry_text:
+                          "",
+                      }
+                    : {}),
+
+                  ...(field ===
+                    "expiry_text" &&
+                  value
+                    ? {
+                        expiry_date:
+                          "",
+                      }
+                    : {}),
+                }
+              : item
+        )
+    );
+  }
+
+  function removeOtherFile(
+    localId
+  ) {
+    setOtherFiles(
+      (current) =>
+        current.filter(
+          (item) =>
+            item.localId !==
+            localId
+        )
+    );
+  }
+
+  function removeSelectedFile(
+    index
+  ) {
+    setFileObjects(
+      (current) =>
+        current.filter(
+          (_file, fileIndex) =>
+            fileIndex !== index
+        )
     );
   }
 
   async function handleSave() {
     setMessage("");
 
+    if (isOther) {
+      if (
+        !otherFiles.length &&
+        !notAvailable
+      ) {
+        setMessage(
+          'Adicione pelo menos um documento ou marque "Não possuímos essa documentação".'
+        );
+        return;
+      }
+
+      if (
+        notAvailable
+      ) {
+        const success =
+          await onSave({
+            otherFiles: [],
+            files: [],
+            not_available:
+              true,
+            issue_date: "",
+            expiry_date: "",
+          });
+
+        if (
+          success !== false
+        ) {
+          setOtherFiles([]);
+          setFileObjects([]);
+        }
+
+        return;
+      }
+
+      for (
+        let index = 0;
+        index < otherFiles.length;
+        index += 1
+      ) {
+        const file =
+          otherFiles[index];
+
+        if (
+          !file.title?.trim()
+        ) {
+          setMessage(
+            `Documento ${index + 1}: informe o título.`
+          );
+          return;
+        }
+
+        if (
+          !file.issue_date ||
+          !isValidDate(
+            file.issue_date
+          )
+        ) {
+          setMessage(
+            `Documento ${index + 1}: informe uma data de emissão válida.`
+          );
+          return;
+        }
+
+        const hasExpiryDate =
+          Boolean(
+            file.expiry_date
+          );
+
+        const hasExpiryText =
+          Boolean(
+            file.expiry_text?.trim()
+          );
+
+        if (
+          hasExpiryDate &&
+          hasExpiryText
+        ) {
+          setMessage(
+            `Documento ${index + 1}: informe a validade por data OU por texto.`
+          );
+          return;
+        }
+
+        if (
+          !hasExpiryDate &&
+          !hasExpiryText
+        ) {
+          setMessage(
+            `Documento ${index + 1}: informe a validade.`
+          );
+          return;
+        }
+
+        if (
+          hasExpiryDate &&
+          !isValidDate(
+            file.expiry_date
+          )
+        ) {
+          setMessage(
+            `Documento ${index + 1}: a data de validade é inválida.`
+          );
+          return;
+        }
+
+        if (
+          hasExpiryDate &&
+          daysUntil(
+            file.expiry_date
+          ) < 0
+        ) {
+          setMessage(
+            `Documento ${index + 1}: a data de validade já passou.`
+          );
+          return;
+        }
+
+        if (!file.path && !file.file) {
+          setMessage(
+            `Documento ${index + 1}: arquivo não encontrado.`
+          );
+          return;
+        }
+      }
+
+      const success =
+        await onSave({
+          otherFiles,
+          files: otherFiles.filter(
+            (file) =>
+              file.path
+          ),
+          not_available:
+            false,
+          issue_date: "",
+          expiry_date: "",
+        });
+
+      if (
+        success !== false
+      ) {
+        setFileObjects([]);
+      }
+
+      return;
+    }
+
     if (
       item.required &&
       !files.length &&
       !fileObjects.length
     ) {
-      setMessage("Este documento é obrigatório.");
+      setMessage(
+        "Este documento é obrigatório."
+      );
       return;
     }
 
@@ -1584,53 +2461,84 @@ function SupplierDocumentCard({
 
     if (
       item.expires &&
-      (files.length || fileObjects.length)
+      (files.length ||
+        fileObjects.length)
     ) {
-      if (!issueDate) {
-        setMessage("Informe a data de emissão.");
+      if (
+        !issueDate ||
+        !isValidDate(
+          issueDate
+        )
+      ) {
+        setMessage(
+          "Informe uma data de emissão válida."
+        );
         return;
       }
 
-      const expectedExpiry =
-        calculateExpiryDate(issueDate);
-
-      if (expiryDate !== expectedExpiry) {
+      if (
+        !expiryDate ||
+        !isValidDate(
+          expiryDate
+        )
+      ) {
         setMessage(
-          `A validade deve ser ${formatDate(
-            expectedExpiry
-          )}.`
+          "Informe uma data de validade válida."
+        );
+        return;
+      }
+
+      if (
+        daysUntil(
+          expiryDate
+        ) < 0
+      ) {
+        setMessage(
+          "A data de validade informada já passou."
         );
         return;
       }
     }
 
-    const success = await onSave({
-      files,
-      fileObjects,
-      issue_date: issueDate,
-      expiry_date: expiryDate,
-      not_available: notAvailable,
-    });
+    const success =
+      await onSave({
+        files,
+        fileObjects,
+        issue_date:
+          issueDate,
+        expiry_date:
+          expiryDate,
+        not_available:
+          notAvailable,
+      });
 
-    if (success !== false) {
+    if (
+      success !== false
+    ) {
       setFileObjects([]);
     }
   }
 
   const status =
-    document?.expiry_date && item.expires
-      ? expiryStatus(document.expiry_date)
+    document?.expiry_date &&
+    item.expires &&
+    !isOther
+      ? expiryStatus(
+          document.expiry_date
+        )
       : null;
 
   const rejected =
-    document?.review_status === "rejected";
+    document?.review_status ===
+    "rejected";
 
   return (
     <article className="document-card">
       <div className="document-top">
         <div className="document-title">
           <div className="document-icon">
-            {item.type === "fotos_local" ? (
+            {item.type ===
+            "fotos_local" ? (
               <ImageIcon size={21} />
             ) : (
               <FileText size={21} />
@@ -1641,11 +2549,15 @@ function SupplierDocumentCard({
             <h3>
               {item.label}{" "}
               {item.required && (
-                <span className="required-mark">*</span>
+                <span className="required-mark">
+                  *
+                </span>
               )}
             </h3>
 
-            <p>{item.description}</p>
+            <p>
+              {item.description}
+            </p>
           </div>
         </div>
 
@@ -1664,137 +2576,413 @@ function SupplierDocumentCard({
             <AlertCircle size={18} />
 
             <div>
-              <strong>Documento rejeitado</strong>
+              <strong>
+                Documento rejeitado
+              </strong>
 
               {document.review_notes && (
-                <p>{document.review_notes}</p>
+                <p>
+                  {
+                    document.review_notes
+                  }
+                </p>
               )}
 
-              <p>Envie uma nova versão para análise.</p>
+              <p>
+                Envie uma nova versão para análise.
+              </p>
             </div>
           </div>
         )}
 
-        <label className="upload-area">
-          <Upload size={25} />
+        {isOther ? (
+          <>
+            <label className="upload-area">
+              <Upload size={25} />
 
-          {fileObjects.length ? (
-            <>
-              <strong>
-                {fileObjects.length} arquivo(s) selecionado(s)
-              </strong>
-              <span>Clique para alterar</span>
-            </>
-          ) : files.length ? (
-            <>
-              <strong>
-                {files.length} arquivo(s) já enviado(s)
-              </strong>
-              <span>Clique para adicionar/substituir</span>
-            </>
-          ) : (
-            <>
-              <strong>
-                Clique para selecionar{" "}
-                {item.multiple
-                  ? "os arquivos"
-                  : "o arquivo"}
-              </strong>
-              <span>
-                PDF, JPG, PNG ou outro formato permitido
-              </span>
-            </>
-          )}
+              {otherFiles.length ? (
+                <>
+                  <strong>
+                    {otherFiles.length} documento(s)
+                    selecionado(s)
+                  </strong>
 
-          <input
-            type="file"
-            multiple={Boolean(item.multiple)}
-            onChange={handleFiles}
-          />
-        </label>
+                  <span>
+                    Clique para adicionar mais
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>
+                    Clique para selecionar os arquivos
+                  </strong>
 
-        {fileObjects.length > 0 && (
-          <div className="selected-files">
-            {fileObjects.map((file, index) => (
-              <div
-                className="selected-file"
-                key={`${file.name}-${index}`}
-              >
-                <FileText size={16} />
-                <span>{file.name}</span>
+                  <span>
+                    Você pode adicionar vários documentos
+                  </span>
+                </>
+              )}
 
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() =>
-                    removeSelectedFile(index)
-                  }
-                >
-                  <X size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {files.length > 0 && (
-          <div className="selected-files">
-            {files.map((file, index) => (
-              <div
-                className="selected-file"
-                key={`${file.path}-${index}`}
-              >
-                <FileText size={16} />
-                <span>{file.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {item.expires && (
-          <div className="date-fields">
-            <label>
-              Data de emissão
               <input
-                type="date"
-                value={issueDate}
-                onChange={(event) =>
-                  handleIssueDateChange(
-                    event.target.value
-                  )
+                type="file"
+                multiple
+                onChange={
+                  handleOtherFiles
                 }
               />
             </label>
 
-            <label>
-              Data de validade
+            {otherFiles.length >
+              0 && (
+              <div className="selected-files">
+                {otherFiles.map(
+                  (
+                    file,
+                    index
+                  ) => {
+                    const fileStatus =
+                      getOtherDocumentExpiryStatus(
+                        file
+                      );
+
+                    return (
+                      <div
+                        className="other-document-editor"
+                        key={
+                          file.localId ||
+                          `${file.path}-${index}`
+                        }
+                      >
+                        <div className="selected-file">
+                          <FileText size={16} />
+
+                          <span>
+                            {file.name}
+                          </span>
+
+                          <button
+                            type="button"
+                            className="icon-button"
+                            onClick={() =>
+                              removeOtherFile(
+                                file.localId
+                              )
+                            }
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
+
+                        <div className="date-fields">
+                          <label>
+                            Título do documento
+                            <input
+                              type="text"
+                              value={
+                                file.title ||
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                updateOtherFile(
+                                  file.localId,
+                                  "title",
+                                  event
+                                    .target
+                                    .value
+                                )
+                              }
+                              placeholder="Ex.: Licença Ambiental"
+                            />
+                          </label>
+
+                          <label>
+                            Data de emissão
+                            <input
+                              type="date"
+                              value={
+                                file.issue_date ||
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                updateOtherFile(
+                                  file.localId,
+                                  "issue_date",
+                                  event
+                                    .target
+                                    .value
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+
+                        <div className="date-fields">
+                          <label>
+                            Data de validade
+                            <input
+                              type="date"
+                              value={
+                                file.expiry_date ||
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                updateOtherFile(
+                                  file.localId,
+                                  "expiry_date",
+                                  event
+                                    .target
+                                    .value
+                                )
+                              }
+                            />
+                          </label>
+
+                          <label>
+                            Ou validade em texto
+                            <input
+                              type="text"
+                              value={
+                                file.expiry_text ||
+                                ""
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                updateOtherFile(
+                                  file.localId,
+                                  "expiry_text",
+                                  event
+                                    .target
+                                    .value
+                                )
+                              }
+                              placeholder="Ex.: Licença definitiva"
+                            />
+                          </label>
+                        </div>
+
+                        {(file.expiry_date ||
+                          file.expiry_text) && (
+                          <div className="required-document-notice">
+                            <Info size={15} />
+
+                            {file.expiry_date
+                              ? fileStatus.label
+                              : "Validade informada por texto. Não será considerada para lembrete automático."}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                )}
+              </div>
+            )}
+
+            <div className="required-document-notice">
+              <Info size={15} />
+
+              Informe a validade de cada documento por data ou por texto,
+              por exemplo: "Licença definitiva".
+            </div>
+          </>
+        ) : (
+          <>
+            <label className="upload-area">
+              <Upload size={25} />
+
+              {fileObjects.length ? (
+                <>
+                  <strong>
+                    {fileObjects.length} arquivo(s)
+                    selecionado(s)
+                  </strong>
+
+                  <span>
+                    Clique para alterar
+                  </span>
+                </>
+              ) : files.length ? (
+                <>
+                  <strong>
+                    {files.length} arquivo(s) já enviado(s)
+                  </strong>
+
+                  <span>
+                    Clique para adicionar/substituir
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>
+                    Clique para selecionar{" "}
+                    {item.multiple
+                      ? "os arquivos"
+                      : "o arquivo"}
+                  </strong>
+
+                  <span>
+                    PDF, JPG, PNG ou outro formato permitido
+                  </span>
+                </>
+              )}
+
               <input
-                type="date"
-                value={expiryDate}
-                readOnly
+                type="file"
+                multiple={Boolean(
+                  item.multiple
+                )}
+                onChange={
+                  handleFiles
+                }
               />
             </label>
-          </div>
-        )}
 
-        {item.expires && issueDate && (
-          <div className="required-document-notice">
-            <Info size={15} />
-            A validade é calculada automaticamente como 1 ano menos 1
-            dia após a emissão.
-          </div>
+            {fileObjects.length >
+              0 && (
+              <div className="selected-files">
+                {fileObjects.map(
+                  (
+                    file,
+                    index
+                  ) => (
+                    <div
+                      className="selected-file"
+                      key={`${file.name}-${index}`}
+                    >
+                      <FileText size={16} />
+
+                      <span>
+                        {file.name}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() =>
+                          removeSelectedFile(
+                            index
+                          )
+                        }
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
+            {files.length >
+              0 && (
+              <div className="selected-files">
+                {files.map(
+                  (
+                    file,
+                    index
+                  ) => (
+                    <div
+                      className="selected-file"
+                      key={`${file.path}-${index}`}
+                    >
+                      <FileText size={16} />
+
+                      <span>
+                        {file.name}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
+            {item.expires && (
+              <div className="date-fields">
+                <label>
+                  Data de emissão
+                  <input
+                    type="date"
+                    value={
+                      issueDate
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setIssueDate(
+                        event
+                          .target
+                          .value
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  Data de validade
+                  <input
+                    type="date"
+                    value={
+                      expiryDate
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setExpiryDate(
+                        event
+                          .target
+                          .value
+                      )
+                    }
+                  />
+                </label>
+              </div>
+            )}
+
+            {item.expires && (
+              <div className="required-document-notice">
+                <Info size={15} />
+                Informe manualmente a data de emissão e a data de validade
+                exatamente como constam no documento.
+              </div>
+            )}
+          </>
         )}
 
         {!item.required && (
           <label className="checkbox-label">
             <input
               type="checkbox"
-              checked={notAvailable}
-              onChange={(event) => {
-                setNotAvailable(event.target.checked);
+              checked={
+                notAvailable
+              }
+              onChange={(
+                event
+              ) => {
+                const checked =
+                  event.target
+                    .checked;
 
-                if (event.target.checked) {
-                  setFileObjects([]);
+                setNotAvailable(
+                  checked
+                );
+
+                if (checked) {
+                  setFileObjects(
+                    []
+                  );
+
+                  if (
+                    isOther
+                  ) {
+                    setOtherFiles(
+                      []
+                    );
+                  }
                 }
               }}
             />
@@ -1817,7 +3005,8 @@ function SupplierDocumentCard({
         )}
 
         <div className="document-actions">
-          {item.type === "checklist" && (
+          {item.type ===
+            "checklist" && (
             <a
               className="secondary-button small-button"
               href="/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx"
@@ -1831,7 +3020,9 @@ function SupplierDocumentCard({
           <button
             type="button"
             className="secondary-button small-button"
-            onClick={handleSave}
+            onClick={
+              handleSave
+            }
             disabled={saving}
           >
             {saving ? (
@@ -1860,32 +3051,48 @@ function AdminDashboard({
   adminProfile,
   onOpenCompany,
 }) {
-  const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
+  const [companies, setCompanies] =
+    useState([]);
+  const [loading, setLoading] =
+    useState(true);
+  const [message, setMessage] =
+    useState("");
   const [showCreateAdmin, setShowCreateAdmin] =
     useState(false);
 
   const canManageUsers =
-    adminCanManageUsers(adminProfile);
+    adminCanManageUsers(
+      adminProfile
+    );
 
   const canReview =
-    adminCanReview(adminProfile);
+    adminCanReview(
+      adminProfile
+    );
 
   const viewOnly =
-    adminIsViewOnly(adminProfile);
+    adminIsViewOnly(
+      adminProfile
+    );
 
   async function loadCompanies() {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .neq("submission_status", "draft")
-      .order("submitted_at", {
-        ascending: false,
-        nullsFirst: false,
-      });
+    const { data, error } =
+      await supabase
+        .from("companies")
+        .select("*")
+        .neq(
+          "submission_status",
+          "draft"
+        )
+        .order(
+          "submitted_at",
+          {
+            ascending: false,
+            nullsFirst: false,
+          }
+        );
 
     if (error) {
       setMessage(error.message);
@@ -1893,14 +3100,19 @@ function AdminDashboard({
       return;
     }
 
-    const visible = (data || []).filter((company) =>
-      adminCanViewCompany(
-        adminProfile,
-        company.modality
-      )
+    const visible =
+      (data || []).filter(
+        (company) =>
+          adminCanViewCompany(
+            adminProfile,
+            company.modality
+          )
+      );
+
+    setCompanies(
+      visible
     );
 
-    setCompanies(visible);
     setLoading(false);
   }
 
@@ -1913,17 +3125,25 @@ function AdminDashboard({
   ]);
 
   async function exportExcel() {
-    if (!companies.length) return;
+    if (!companies.length)
+      return;
 
     try {
       setMessage("");
 
-      const companyIds = companies.map((company) => company.id);
+      const companyIds =
+        companies.map(
+          (company) =>
+            company.id
+        );
 
       const ownerIds = [
         ...new Set(
           companies
-            .map((company) => company.owner_id)
+            .map(
+              (company) =>
+                company.owner_id
+            )
             .filter(Boolean)
         ),
       ];
@@ -1941,101 +3161,308 @@ function AdminDashboard({
         supabase
           .from("documents")
           .select("*")
-          .in("company_id", companyIds),
+          .in(
+            "company_id",
+            companyIds
+          ),
 
         supabase
           .from("profiles")
-          .select("id, full_name, email")
-          .in("id", ownerIds),
+          .select(
+            "id, full_name, email"
+          )
+          .in(
+            "id",
+            ownerIds
+          ),
       ]);
 
-      if (documentsError) {
+      if (documentsError)
         throw documentsError;
-      }
 
-      if (profilesError) {
+      if (profilesError)
         throw profilesError;
-      }
 
-      const documentsByCompany = {};
+      const documentsByCompany =
+        {};
 
-      (documentsData || []).forEach((document) => {
-        if (!documentsByCompany[document.company_id]) {
-          documentsByCompany[document.company_id] = {};
+      (
+        documentsData || []
+      ).forEach(
+        (document) => {
+          if (
+            !documentsByCompany[
+              document.company_id
+            ]
+          ) {
+            documentsByCompany[
+              document.company_id
+            ] = {};
+          }
+
+          documentsByCompany[
+            document.company_id
+          ][document.type] =
+            document;
         }
+      );
 
-        documentsByCompany[document.company_id][document.type] =
-          document;
-      });
+      const profilesById =
+        {};
 
-      const profilesById = {};
+      (
+        profilesData || []
+      ).forEach(
+        (profile) => {
+          profilesById[
+            profile.id
+          ] = profile;
+        }
+      );
 
-      (profilesData || []).forEach((profile) => {
-        profilesById[profile.id] = profile;
-      });
+      const rows =
+        companies.map(
+          (company) => {
+            const owner =
+              profilesById[
+                company.owner_id
+              ] || {};
 
-      const rows = companies.map((company) => {
-        const owner = profilesById[company.owner_id] || {};
+            const companyDocuments =
+              documentsByCompany[
+                company.id
+              ] || {};
 
-        const companyDocuments =
-          documentsByCompany[company.id] || {};
+            const row = {
+              "Nome do fornecedor":
+                owner.full_name ||
+                "",
 
-        const row = {
-          "Nome do fornecedor": owner.full_name || "",
-          "E-mail do fornecedor": owner.email || "",
-          "Razão Social": company.legal_name || "",
-          CNPJ: formatCnpj(company.cnpj),
-          "Serviço/atividade": company.modality || "",
-          "Status da homologação": getCompanyStatusLabel(
-            company.submission_status
-          ),
-          "Data de envio": formatDate(
-            company.submitted_at?.slice(0, 10)
-          ),
-          "Data de análise": formatDate(
-            company.reviewed_at?.slice(0, 10)
-          ),
-          "Observação geral": company.review_notes || "",
-        };
+              "E-mail do fornecedor":
+                owner.email || "",
 
-        DOCUMENTS.forEach((item) => {
-          const document = companyDocuments[item.type];
+              "Razão Social":
+                company.legal_name ||
+                "",
 
-          const documentFiles =
-            getDocumentFiles(document);
+              CNPJ:
+                formatCnpj(
+                  company.cnpj
+                ),
 
-          row[`${item.label} - Documento`] =
-            documentFiles
-              .map((file) => file.name)
-              .join(" | ");
+              "Serviço/atividade":
+                company.modality ||
+                "",
 
-          row[`${item.label} - Data de emissão`] =
-            formatDate(document?.issue_date);
+              "Status da homologação":
+                getCompanyStatusLabel(
+                  company.submission_status
+                ),
 
-          row[`${item.label} - Data de vencimento`] =
-            formatDate(document?.expiry_date);
+              "Data de envio":
+                formatDate(
+                  company.submitted_at?.slice(
+                    0,
+                    10
+                  )
+                ),
 
-          row[`${item.label} - Status`] =
-            document?.not_available
-              ? "Não possui documentação"
-              : document?.review_status
-              ? STATUS_LABELS[
-                  document.review_status
-                ] ||
-                document.review_status
-              : documentFiles.length
-              ? "Aguardando análise"
-              : "Não enviado";
+              "Data de análise":
+                formatDate(
+                  company.reviewed_at?.slice(
+                    0,
+                    10
+                  )
+                ),
 
-          row[`${item.label} - Observação`] =
-            document?.review_notes || "";
-        });
+              "Observação geral":
+                company.review_notes ||
+                "",
+            };
 
-        return row;
-      });
+            DOCUMENTS.forEach(
+              (item) => {
+                const document =
+                  companyDocuments[
+                    item.type
+                  ];
+
+                const documentFiles =
+                  getDocumentFiles(
+                    document
+                  );
+
+                if (
+                  item.type ===
+                  "outros"
+                ) {
+                  const otherFiles =
+                    getOtherDocumentFiles(
+                      document
+                    );
+
+                  row[
+                    `${item.label} - Documento`
+                  ] =
+                    otherFiles.length
+                      ? otherFiles
+                          .map(
+                            (
+                              file
+                            ) =>
+                              file.name
+                          )
+                          .join(
+                            " | "
+                          )
+                      : document?.not_available
+                      ? "Não possui documentação"
+                      : "";
+
+                  row[
+                    `${item.label} - Data de emissão`
+                  ] =
+                    otherFiles.length
+                      ? otherFiles
+                          .map(
+                            (
+                              file
+                            ) =>
+                              `${file.title}: ${formatDate(
+                                file.issue_date
+                              )}`
+                          )
+                          .join(
+                            " | "
+                          )
+                      : "";
+
+                  row[
+                    `${item.label} - Data de vencimento`
+                  ] =
+                    otherFiles.length
+                      ? otherFiles
+                          .map(
+                            (
+                              file
+                            ) =>
+                              `${file.title}: ${getOtherDocumentExpiryLabel(
+                                file
+                              )}`
+                          )
+                          .join(
+                            " | "
+                          )
+                      : document?.not_available
+                      ? "Não possui documentação"
+                      : "";
+
+                  row[
+                    `${item.label} - Status`
+                  ] =
+                    document?.not_available
+                      ? "Não possui documentação"
+                      : otherFiles.length
+                      ? otherFiles
+                          .map(
+                            (
+                              file,
+                              index
+                            ) => {
+                              const status =
+                                getOtherDocumentExpiryStatus(
+                                  file
+                                );
+
+                              return `${index + 1}. ${file.title}: ${status.label}`;
+                            }
+                          )
+                          .join(
+                            " | "
+                          )
+                      : "Não enviado";
+
+                  row[
+                    `${item.label} - Observação`
+                  ] =
+                    otherFiles.length
+                      ? otherFiles
+                          .map(
+                            (
+                              file,
+                              index
+                            ) =>
+                              `${index + 1}. Título: ${file.title} | Arquivo: ${file.name} | Emissão: ${formatDate(
+                                file.issue_date
+                              )} | Validade: ${getOtherDocumentExpiryLabel(
+                                file
+                              )}`
+                          )
+                          .join(
+                            "\n"
+                          )
+                      : document?.not_available
+                      ? "Não possuímos essa documentação"
+                      : "";
+
+                  return;
+                }
+
+                row[
+                  `${item.label} - Documento`
+                ] =
+                  documentFiles
+                    .map(
+                      (file) =>
+                        file.name
+                    )
+                    .join(" | ");
+
+                row[
+                  `${item.label} - Data de emissão`
+                ] =
+                  formatDate(
+                    document?.issue_date
+                  );
+
+                row[
+                  `${item.label} - Data de vencimento`
+                ] =
+                  formatDate(
+                    document?.expiry_date
+                  );
+
+                row[
+                  `${item.label} - Status`
+                ] =
+                  document?.not_available
+                    ? "Não possui documentação"
+                    : document?.review_status
+                    ? STATUS_LABELS[
+                        document
+                          .review_status
+                      ] ||
+                      document.review_status
+                    : documentFiles.length
+                    ? "Aguardando análise"
+                    : "Não enviado";
+
+                row[
+                  `${item.label} - Observação`
+                ] =
+                  document?.review_notes ||
+                  "";
+              }
+            );
+
+            return row;
+          }
+        );
 
       const worksheet =
-        XLSX.utils.json_to_sheet(rows);
+        XLSX.utils.json_to_sheet(
+          rows
+        );
 
       worksheet["!cols"] = [
         { wch: 28 },
@@ -2048,13 +3475,25 @@ function AdminDashboard({
         { wch: 15 },
         { wch: 35 },
 
-        ...DOCUMENTS.flatMap(() => [
-          { wch: 35 },
-          { wch: 18 },
-          { wch: 20 },
-          { wch: 24 },
-          { wch: 35 },
-        ]),
+        ...DOCUMENTS.flatMap(
+          (item) =>
+            item.type ===
+            "outros"
+              ? [
+                  { wch: 35 },
+                  { wch: 35 },
+                  { wch: 45 },
+                  { wch: 35 },
+                  { wch: 70 },
+                ]
+              : [
+                  { wch: 35 },
+                  { wch: 18 },
+                  { wch: 20 },
+                  { wch: 24 },
+                  { wch: 35 },
+                ]
+        ),
       ];
 
       const workbook =
@@ -2090,7 +3529,9 @@ function AdminDashboard({
             Área administrativa
           </div>
 
-          <h1>Homologação de fornecedores</h1>
+          <h1>
+            Homologação de fornecedores
+          </h1>
 
           <p>
             Empresas que já foram enviadas para análise.
@@ -2101,8 +3542,12 @@ function AdminDashboard({
           <button
             type="button"
             className="secondary-button"
-            onClick={exportExcel}
-            disabled={!companies.length}
+            onClick={
+              exportExcel
+            }
+            disabled={
+              !companies.length
+            }
           >
             <FileDown size={17} />
             Exportar para Excel
@@ -2113,7 +3558,9 @@ function AdminDashboard({
               type="button"
               className="secondary-button"
               onClick={() =>
-                setShowCreateAdmin(true)
+                setShowCreateAdmin(
+                  true
+                )
               }
             >
               <UserPlus size={17} />
@@ -2133,27 +3580,30 @@ function AdminDashboard({
             </strong>
 
             <p>
-              Você pode consultar as empresas e documentos, mas não
-              pode aprovar ou rejeitar.
+              Você pode consultar as empresas e documentos, mas não pode
+              aprovar ou rejeitar.
             </p>
           </div>
         </div>
       )}
 
-      {!canReview && !viewOnly && (
-        <div className="notice-card info">
-          <KeyRound size={19} />
+      {!canReview &&
+        !viewOnly && (
+          <div className="notice-card info">
+            <KeyRound size={19} />
 
-          <div>
-            <strong>Acesso por categoria</strong>
+            <div>
+              <strong>
+                Acesso por categoria
+              </strong>
 
-            <p>
-              Você visualiza as empresas relacionadas às palavras-chave
-              cadastradas no seu perfil.
-            </p>
+              <p>
+                Você visualiza as empresas relacionadas às palavras-chave
+                cadastradas no seu perfil.
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {message && (
         <div className="form-message error">
@@ -2169,11 +3619,14 @@ function AdminDashboard({
           />
           Carregando empresas...
         </div>
-      ) : companies.length === 0 ? (
+      ) : companies.length ===
+        0 ? (
         <div className="empty-state">
           <ClipboardCheck size={38} />
 
-          <h2>Nenhuma empresa disponível</h2>
+          <h2>
+            Nenhuma empresa disponível
+          </h2>
 
           <p>
             No momento não há empresas enviadas para homologação dentro
@@ -2182,55 +3635,73 @@ function AdminDashboard({
         </div>
       ) : (
         <div className="company-grid">
-          {companies.map((company) => (
-            <button
-              type="button"
-              key={company.id}
-              className="company-card company-card-main admin-company-card"
-              onClick={() =>
-                onOpenCompany(company)
-              }
-            >
-              <div className="company-icon">
-                <FileCheck2 size={23} />
-              </div>
-
-              <div className="company-content">
-                <h2>{company.legal_name}</h2>
-
-                <p>{formatCnpj(company.cnpj)}</p>
-
-                <div className="company-modality">
-                  {company.modality ||
-                    "Serviço/atividade não informado"}
+          {companies.map(
+            (company) => (
+              <button
+                type="button"
+                key={company.id}
+                className="company-card company-card-main admin-company-card"
+                onClick={() =>
+                  onOpenCompany(
+                    company
+                  )
+                }
+              >
+                <div className="company-icon">
+                  <FileCheck2 size={23} />
                 </div>
 
-                <div className="company-card-status">
-                  <StatusBadge
-                    status={company.submission_status}
-                    label={getCompanyStatusLabel(
-                      company.submission_status
+                <div className="company-content">
+                  <h2>
+                    {
+                      company.legal_name
+                    }
+                  </h2>
+
+                  <p>
+                    {formatCnpj(
+                      company.cnpj
                     )}
-                  />
-                </div>
-              </div>
+                  </p>
 
-              <ChevronRight
-                size={20}
-                className="company-arrow"
-              />
-            </button>
-          ))}
+                  <div className="company-modality">
+                    {company.modality ||
+                      "Serviço/atividade não informado"}
+                  </div>
+
+                  <div className="company-card-status">
+                    <StatusBadge
+                      status={
+                        company.submission_status
+                      }
+                      label={getCompanyStatusLabel(
+                        company.submission_status
+                      )}
+                    />
+                  </div>
+                </div>
+
+                <ChevronRight
+                  size={20}
+                  className="company-arrow"
+                />
+              </button>
+            )
+          )}
         </div>
       )}
 
       {showCreateAdmin && (
         <CreateAdminForm
           onClose={() =>
-            setShowCreateAdmin(false)
+            setShowCreateAdmin(
+              false
+            )
           }
           onCreated={() =>
-            setShowCreateAdmin(false)
+            setShowCreateAdmin(
+              false
+            )
           }
         />
       )}
@@ -2242,26 +3713,37 @@ function CreateAdminForm({
   onClose,
   onCreated,
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [keywords, setKeywords] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [name, setName] =
+    useState("");
+  const [email, setEmail] =
+    useState("");
+  const [keywords, setKeywords] =
+    useState("");
+  const [loading, setLoading] =
+    useState(false);
+  const [message, setMessage] =
+    useState("");
 
-  async function handleCreate(event) {
+  async function handleCreate(
+    event
+  ) {
     event.preventDefault();
 
     setLoading(true);
     setMessage("");
 
-    const { data, error } =
+    const {
+      data,
+      error,
+    } =
       await supabase.functions.invoke(
         "create-admin",
         {
           body: {
             name: name.trim(),
             email: email.trim(),
-            keywords: keywords.trim(),
+            keywords:
+              keywords.trim(),
           },
         }
       );
@@ -2307,7 +3789,9 @@ function CreateAdminForm({
           </div>
 
           <div>
-            <h2>Cadastrar administrador</h2>
+            <h2>
+              Cadastrar administrador
+            </h2>
 
             <p>
               Defina o nível de acesso que esse administrador terá.
@@ -2324,7 +3808,9 @@ function CreateAdminForm({
             <input
               value={name}
               onChange={(event) =>
-                setName(event.target.value)
+                setName(
+                  event.target.value
+                )
               }
               placeholder="Nome do administrador"
               required
@@ -2337,7 +3823,9 @@ function CreateAdminForm({
               type="email"
               value={email}
               onChange={(event) =>
-                setEmail(event.target.value)
+                setEmail(
+                  event.target.value
+                )
               }
               placeholder="email@empresa.com.br"
               required
@@ -2349,14 +3837,18 @@ function CreateAdminForm({
             <input
               value={keywords}
               onChange={(event) =>
-                setKeywords(event.target.value)
+                setKeywords(
+                  event.target.value
+                )
               }
               placeholder="Ex.: LAVAGEM, VAPOR, EXAUSTOR"
             />
           </label>
 
           <div className="admin-permission-box">
-            <strong>Como funciona:</strong>
+            <strong>
+              Como funciona:
+            </strong>
 
             <span>
               • Campo em branco: acesso para visualizar e analisar tudo.
@@ -2436,16 +3928,23 @@ function AdminCompanyPage({
     useState("");
 
   const [reviewNotes, setReviewNotes] =
-    useState(company.review_notes || "");
+    useState(
+      company.review_notes ||
+        ""
+    );
 
   const [savingCompany, setSavingCompany] =
     useState(false);
 
   const canReview =
-    adminCanReview(adminProfile);
+    adminCanReview(
+      adminProfile
+    );
 
   const viewOnly =
-    adminIsViewOnly(adminProfile);
+    adminIsViewOnly(
+      adminProfile
+    );
 
   async function loadDocuments() {
     setLoading(true);
@@ -2462,7 +3961,9 @@ function AdminCompanyPage({
     if (error) {
       setMessage(error.message);
     } else {
-      setDocuments(data || []);
+      setDocuments(
+        data || []
+      );
     }
 
     setLoading(false);
@@ -2477,22 +3978,34 @@ function AdminCompanyPage({
     reviewStatus,
     notes
   ) {
-    if (!canReview) return;
+    if (!canReview)
+      return;
 
     const { error } =
       await supabase
         .from("documents")
         .update({
-          review_status: reviewStatus,
+          review_status:
+            reviewStatus,
+
           reviewed_at:
             new Date().toISOString(),
-          reviewed_by: session.user.id,
-          review_notes: notes || null,
+
+          reviewed_by:
+            session.user.id,
+
+          review_notes:
+            notes || null,
         })
-        .eq("id", document.id);
+        .eq(
+          "id",
+          document.id
+        );
 
     if (error) {
-      setMessage(error.message);
+      setMessage(
+        error.message
+      );
       return;
     }
 
@@ -2502,37 +4015,66 @@ function AdminCompanyPage({
   async function updateCompanyStatus(
     status
   ) {
-    if (!canReview) return;
+    if (!canReview)
+      return;
 
-    setSavingCompany(true);
+    setSavingCompany(
+      true
+    );
+
     setMessage("");
 
-    const { data, error } =
+    const {
+      data,
+      error,
+    } =
       await supabase
         .from("companies")
         .update({
-          submission_status: status,
+          submission_status:
+            status,
+
           reviewed_at:
             new Date().toISOString(),
-          reviewed_by: session.user.id,
+
+          reviewed_by:
+            session.user.id,
+
           review_notes:
-            reviewNotes.trim() || null,
+            reviewNotes.trim() ||
+            null,
         })
-        .eq("id", company.id)
+        .eq(
+          "id",
+          company.id
+        )
         .select()
         .single();
 
     if (error) {
-      setMessage(error.message);
-      setSavingCompany(false);
+      setMessage(
+        error.message
+      );
+
+      setSavingCompany(
+        false
+      );
+
       return;
     }
 
-    Object.assign(company, data);
+    Object.assign(
+      company,
+      data
+    );
 
-    setSavingCompany(false);
+    setSavingCompany(
+      false
+    );
 
-    if (status === "approved") {
+    if (
+      status === "approved"
+    ) {
       setMessage(
         "Fornecedor homologado com sucesso."
       );
@@ -2560,10 +4102,15 @@ function AdminCompanyPage({
             Análise de fornecedor
           </div>
 
-          <h1>{company.legal_name}</h1>
+          <h1>
+            {company.legal_name}
+          </h1>
 
           <p>
-            CNPJ: {formatCnpj(company.cnpj)}
+            CNPJ:{" "}
+            {formatCnpj(
+              company.cnpj
+            )}
             <br />
             Serviço/atividade:{" "}
             {company.modality ||
@@ -2572,7 +4119,9 @@ function AdminCompanyPage({
         </div>
 
         <StatusBadge
-          status={company.submission_status}
+          status={
+            company.submission_status
+          }
           label={getCompanyStatusLabel(
             company.submission_status
           )}
@@ -2612,25 +4161,32 @@ function AdminCompanyPage({
         </div>
       ) : (
         <div className="documents-list">
-          {DOCUMENTS.map((item) => {
-            const document =
-              documents.find(
-                (doc) =>
-                  doc.type === item.type
-              );
+          {DOCUMENTS.map(
+            (item) => {
+              const document =
+                documents.find(
+                  (doc) =>
+                    doc.type ===
+                    item.type
+                );
 
-            return (
-              <AdminDocumentCard
-                key={item.type}
-                item={item}
-                document={document}
-                canReview={canReview}
-                onReview={
-                  updateDocumentReview
-                }
-              />
-            );
-          })}
+              return (
+                <AdminDocumentCard
+                  key={item.type}
+                  item={item}
+                  document={
+                    document
+                  }
+                  canReview={
+                    canReview
+                  }
+                  onReview={
+                    updateDocumentReview
+                  }
+                />
+              );
+            }
+          )}
         </div>
       )}
 
@@ -2674,7 +4230,9 @@ function AdminCompanyPage({
                   "rejected"
                 )
               }
-              disabled={savingCompany}
+              disabled={
+                savingCompany
+              }
             >
               <X size={17} />
               Solicitar correções
@@ -2688,7 +4246,9 @@ function AdminCompanyPage({
                   "approved"
                 )
               }
-              disabled={savingCompany}
+              disabled={
+                savingCompany
+              }
             >
               <Check size={17} />
               Aprovar homologação
@@ -2706,9 +4266,13 @@ function AdminDocumentCard({
   canReview,
   onReview,
 }) {
+  const isOther =
+    item.type === "outros";
+
   const [notes, setNotes] =
     useState(
-      document?.review_notes || ""
+      document?.review_notes ||
+        ""
     );
 
   const [loading, setLoading] =
@@ -2716,15 +4280,26 @@ function AdminDocumentCard({
 
   useEffect(() => {
     setNotes(
-      document?.review_notes || ""
+      document?.review_notes ||
+        ""
     );
   }, [document]);
 
   const files =
-    getDocumentFiles(document);
+    getDocumentFiles(
+      document
+    );
+
+  const otherFiles =
+    isOther
+      ? getOtherDocumentFiles(
+          document
+        )
+      : [];
 
   const status =
     item.expires &&
+    !isOther &&
     document?.expiry_date
       ? expiryStatus(
           document.expiry_date
@@ -2737,8 +4312,9 @@ function AdminDocumentCard({
     if (
       !document ||
       !canReview
-    )
+    ) {
       return;
+    }
 
     setLoading(true);
 
@@ -2774,7 +4350,9 @@ function AdminDocumentCard({
               )}
             </h3>
 
-            <p>{item.description}</p>
+            <p>
+              {item.description}
+            </p>
           </div>
         </div>
 
@@ -2801,7 +4379,8 @@ function AdminDocumentCard({
             >
               {
                 STATUS_LABELS[
-                  document.review_status
+                  document
+                    .review_status
                 ]
               }
             </span>
@@ -2836,11 +4415,100 @@ function AdminDocumentCard({
               </strong>
             </div>
           </div>
+        ) : isOther ? (
+          <>
+            <div className="other-documents-admin-list">
+              {otherFiles.map(
+                (
+                  file,
+                  index
+                ) => {
+                  const fileStatus =
+                    getOtherDocumentExpiryStatus(
+                      file
+                    );
+
+                  return (
+                    <div
+                      className="other-document-admin-item"
+                      key={`${file.path}-${index}`}
+                    >
+                      <AdminFileItem
+                        file={file}
+                      />
+
+                      <div className="date-fields">
+                        <label>
+                          Título
+                          <input
+                            type="text"
+                            value={
+                              file.title ||
+                              ""
+                            }
+                            readOnly
+                          />
+                        </label>
+
+                        <label>
+                          Data de emissão
+                          <input
+                            type="date"
+                            value={
+                              file.issue_date ||
+                              ""
+                            }
+                            readOnly
+                          />
+                        </label>
+                      </div>
+
+                      <div className="date-fields">
+                        <label>
+                          Data de validade
+                          <input
+                            type="date"
+                            value={
+                              file.expiry_date ||
+                              ""
+                            }
+                            readOnly
+                          />
+                        </label>
+
+                        <label>
+                          Validade em texto
+                          <input
+                            type="text"
+                            value={
+                              file.expiry_text ||
+                              ""
+                            }
+                            readOnly
+                          />
+                        </label>
+                      </div>
+
+                      <div className="required-document-notice">
+                        <Info size={15} />
+
+                        Validade:{" "}
+                        {fileStatus.label}
+                      </div>
+                    </div>
+                  );
+                }
+              )}
+            </div>
+          </>
         ) : (
           <>
             <div className="selected-files">
               {files.map(
-                (file, index) => (
+                (
+                  file,
+                  index
+                ) => (
                   <AdminFileItem
                     key={`${file.path}-${index}`}
                     file={file}
@@ -2891,7 +4559,9 @@ function AdminDocumentCard({
                 </strong>
 
                 <p>
-                  {document.review_notes}
+                  {
+                    document.review_notes
+                  }
                 </p>
               </div>
             </div>
@@ -2921,7 +4591,9 @@ function AdminDocumentCard({
                   type="button"
                   className="secondary-button small-button danger-button"
                   onClick={() =>
-                    review("rejected")
+                    review(
+                      "rejected"
+                    )
                   }
                   disabled={loading}
                 >
@@ -2933,7 +4605,9 @@ function AdminDocumentCard({
                   type="button"
                   className="secondary-button small-button success-button"
                   onClick={() =>
-                    review("approved")
+                    review(
+                      "approved"
+                    )
                   }
                   disabled={loading}
                 >
@@ -2948,14 +4622,14 @@ function AdminDocumentCard({
   );
 }
 
-/*
- * CORREÇÃO DO VISUALIZAR PDF
- *
- * O PDF é aberto dentro do próprio portal em uma janela de visualização.
- */
-function AdminFileItem({ file }) {
-  const [url, setUrl] = useState("");
-  const [loading, setLoading] = useState(false);
+function AdminFileItem({
+  file,
+}) {
+  const [url, setUrl] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
 
   async function openFile(event) {
     event.preventDefault();
@@ -2964,21 +4638,34 @@ function AdminFileItem({ file }) {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.storage
-        .from("supplier-documents")
-        .createSignedUrl(file.path, 300);
+      const {
+        data,
+        error,
+      } =
+        await supabase.storage
+          .from(
+            "supplier-documents"
+          )
+          .createSignedUrl(
+            file.path,
+            300
+          );
 
       if (error) {
         throw error;
       }
 
-      if (!data?.signedUrl) {
+      if (
+        !data?.signedUrl
+      ) {
         throw new Error(
           "Não foi possível gerar o link para visualizar o documento."
         );
       }
 
-      setUrl(data.signedUrl);
+      setUrl(
+        data.signedUrl
+      );
     } catch (error) {
       alert(
         error?.message ||
@@ -2992,6 +4679,7 @@ function AdminFileItem({ file }) {
   function closePreview(event) {
     event?.preventDefault();
     event?.stopPropagation();
+
     setUrl("");
   }
 
@@ -3000,7 +4688,9 @@ function AdminFileItem({ file }) {
       <div className="selected-file">
         <FileText size={16} />
 
-        <span>{file.name}</span>
+        <span>
+          {file.name}
+        </span>
 
         <button
           type="button"
@@ -3028,7 +4718,9 @@ function AdminFileItem({ file }) {
       {url && (
         <div
           className="pdf-preview-overlay"
-          onClick={closePreview}
+          onClick={
+            closePreview
+          }
         >
           <div
             className="pdf-preview-modal"
@@ -3037,12 +4729,16 @@ function AdminFileItem({ file }) {
             }
           >
             <div className="pdf-preview-header">
-              <strong>{file.name}</strong>
+              <strong>
+                {file.name}
+              </strong>
 
               <button
                 type="button"
                 className="icon-button"
-                onClick={closePreview}
+                onClick={
+                  closePreview
+                }
               >
                 <X size={20} />
               </button>
@@ -3068,7 +4764,9 @@ function AdminFileItem({ file }) {
               <button
                 type="button"
                 className="primary-button small-button"
-                onClick={closePreview}
+                onClick={
+                  closePreview
+                }
               >
                 Fechar
               </button>
@@ -3086,16 +4784,24 @@ function StatusBadge({
 }) {
   let className = "";
 
-  if (status === "approved") {
-    className = "status-ok";
-  } else if (
-    status === "rejected"
+  if (
+    status ===
+    "approved"
   ) {
-    className = "status-danger";
+    className =
+      "status-ok";
   } else if (
-    status === "submitted"
+    status ===
+    "rejected"
   ) {
-    className = "status-warning";
+    className =
+      "status-danger";
+  } else if (
+    status ===
+    "submitted"
+  ) {
+    className =
+      "status-warning";
   }
 
   return (
