@@ -88,9 +88,12 @@ button:disabled {
   align-items: center;
 }
 
-.brand img {
-  width: 92px;
-  height: 58px;
+.brand img,
+.brand-logo {
+  display: block;
+  width: 130px;
+  height: 52px;
+  max-width: 130px;
   object-fit: contain;
 }
 
