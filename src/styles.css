@@ -994,3 +994,52 @@ button:disabled {
     width: 100%;
   }
 }
+/* =========================================================
+   CAMPOS DE OBSERVAÇÃO DO ADMINISTRADOR
+   ========================================================= */
+
+.admin-review-observation,
+.document-review-observation {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #d8d8d8;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #222222;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  outline: none;
+  transition: 0.2s ease;
+}
+
+.admin-review-observation {
+  min-height: 180px;
+}
+
+.document-review-observation {
+  min-height: 140px;
+}
+
+.admin-review-observation:focus,
+.document-review-observation:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(227, 6, 19, 0.08);
+}
+
+.admin-review-observation::placeholder,
+.document-review-observation::placeholder {
+  color: #999999;
+}
+
+/* Mantém os campos confortáveis no celular */
+@media (max-width: 700px) {
+  .admin-review-observation {
+    min-height: 150px;
+  }
+
+  .document-review-observation {
+    min-height: 120px;
+  }
+}
