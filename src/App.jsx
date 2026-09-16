@@ -1913,23 +1913,154 @@ function AdminDashboard({
     adminProfile?.admin_can_manage_users,
   ]);
 
-  function exportExcel() {
-    const rows = companies.map((company) => ({
-      "Razão Social": company.legal_name,
-      CNPJ: formatCnpj(company.cnpj),
-      "Serviço/atividade": company.modality || "",
-      Status: getCompanyStatusLabel(
-        company.submission_status
-      ),
-      "Data de envio": formatDate(
-        company.submitted_at?.slice(0, 10)
-      ),
-      "Data de análise": formatDate(
-        company.reviewed_at?.slice(0, 10)
-      ),
-      Observação: company.review_notes || "",
-    }));
+  async function exportExcel() {
+  if (!companies.length) return;
 
+  try {
+    setMessage("");
+
+    const companyIds = companies.map((company) => company.id);
+    const ownerIds = [
+      ...new Set(companies.map((company) => company.owner_id).filter(Boolean)),
+    ];
+
+    const [{ data: documentsData, error: documentsError }, { data: profilesData, error: profilesError }] =
+      await Promise.all([
+        supabase
+          .from("documents")
+          .select("*")
+          .in("company_id", companyIds),
+
+        supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .in("id", ownerIds),
+      ]);
+
+    if (documentsError) {
+      throw documentsError;
+    }
+
+    if (profilesError) {
+      throw profilesError;
+    }
+
+    const documentsByCompany = {};
+
+    (documentsData || []).forEach((document) => {
+      if (!documentsByCompany[document.company_id]) {
+        documentsByCompany[document.company_id] = {};
+      }
+
+      documentsByCompany[document.company_id][document.type] = document;
+    });
+
+    const profilesById = {};
+
+    (profilesData || []).forEach((profile) => {
+      profilesById[profile.id] = profile;
+    });
+
+    const rows = companies.map((company) => {
+      const owner = profilesById[company.owner_id] || {};
+      const companyDocuments =
+        documentsByCompany[company.id] || {};
+
+      const row = {
+        "Nome do fornecedor": owner.full_name || "",
+        "E-mail do fornecedor": owner.email || "",
+        "Razão Social": company.legal_name || "",
+        CNPJ: formatCnpj(company.cnpj),
+        "Serviço/atividade": company.modality || "",
+        "Status da homologação": getCompanyStatusLabel(
+          company.submission_status
+        ),
+        "Data de envio": formatDate(
+          company.submitted_at?.slice(0, 10)
+        ),
+        "Data de análise": formatDate(
+          company.reviewed_at?.slice(0, 10)
+        ),
+        "Observação geral": company.review_notes || "",
+      };
+
+      DOCUMENTS.forEach((item) => {
+        const document = companyDocuments[item.type];
+
+        const documentFiles = getDocumentFiles(document);
+
+        row[`${item.label} - Documento`] = documentFiles
+          .map((file) => file.name)
+          .join(" | ");
+
+        row[`${item.label} - Data de emissão`] =
+          formatDate(document?.issue_date);
+
+        row[`${item.label} - Data de vencimento`] =
+          formatDate(document?.expiry_date);
+
+        row[`${item.label} - Status`] =
+          document?.not_available
+            ? "Não possui documentação"
+            : document?.review_status
+            ? STATUS_LABELS[document.review_status] ||
+              document.review_status
+            : documentFiles.length
+            ? "Aguardando análise"
+            : "Não enviado";
+
+        row[`${item.label} - Observação`] =
+          document?.review_notes || "";
+      });
+
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+
+    worksheet["!cols"] = [
+      { wch: 28 },
+      { wch: 34 },
+      { wch: 32 },
+      { wch: 20 },
+      { wch: 38 },
+      { wch: 24 },
+      { wch: 15 },
+      { wch: 15 },
+      { wch: 35 },
+
+      ...DOCUMENTS.flatMap(() => [
+        { wch: 35 },
+        { wch: 18 },
+        { wch: 20 },
+        { wch: 24 },
+        { wch: 35 },
+      ]),
+    ];
+
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "Homologação"
+    );
+
+    XLSX.writeFile(
+      workbook,
+      `relatorio-homologacao-${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`
+    );
+  } catch (error) {
+    console.error(error);
+
+    setMessage(
+      error?.message ||
+        "Não foi possível gerar o relatório para Excel."
+    );
+  }
+}
     const worksheet =
       XLSX.utils.json_to_sheet(rows);
 
