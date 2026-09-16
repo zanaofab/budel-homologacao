@@ -1,3 +1,4 @@
+```jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -138,17 +139,13 @@ function keywordList(value) {
 
 function adminIsViewOnly(profile) {
   const keywords = keywordList(profile?.admin_keywords);
-
   return keywords.includes("visualizar");
 }
 
 function adminCanReview(profile) {
   if (!profile || profile.role !== "admin") return false;
-
   if (profile.admin_can_manage_users) return true;
-
   if (adminIsViewOnly(profile)) return false;
-
   return true;
 }
 
@@ -477,7 +474,11 @@ function Header({
   return (
     <header className="site-header">
       <div className="header-inner">
-        <button className="brand-button" onClick={onHome}>
+        <button
+          type="button"
+          className="brand-button"
+          onClick={onHome}
+        >
           <img
             src="/budel-logo.png"
             alt="Budel Transportes"
@@ -487,26 +488,42 @@ function Header({
 
         <div className="header-actions">
           {session && profile?.role === "admin" && (
-            <button className="header-link" onClick={onAdmin}>
+            <button
+              type="button"
+              className="header-link"
+              onClick={onAdmin}
+            >
               <ShieldCheck size={16} />
               Administração
             </button>
           )}
 
           {session && profile?.role !== "admin" && (
-            <button className="header-link" onClick={onSupplier}>
+            <button
+              type="button"
+              className="header-link"
+              onClick={onSupplier}
+            >
               <FolderOpen size={16} />
               Meus CNPJs
             </button>
           )}
 
           {!session ? (
-            <button className="header-link" onClick={onLogin}>
+            <button
+              type="button"
+              className="header-link"
+              onClick={onLogin}
+            >
               <LogIn size={16} />
               Entrar
             </button>
           ) : (
-            <button className="header-link" onClick={onSignOut}>
+            <button
+              type="button"
+              className="header-link"
+              onClick={onSignOut}
+            >
               <LogOut size={16} />
               Sair
             </button>
@@ -534,7 +551,11 @@ function HomePage({ session, profile, onStart }) {
             fornecedores da Budel Transportes.
           </p>
 
-          <button className="primary-button hero-button" onClick={onStart}>
+          <button
+            type="button"
+            className="primary-button hero-button"
+            onClick={onStart}
+          >
             <Upload size={18} />
             {session
               ? profile?.role === "admin"
@@ -578,7 +599,11 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
   return (
     <main className="page">
       <div className="auth-card">
-        <button className="back-button" onClick={onBack}>
+        <button
+          type="button"
+          className="back-button"
+          onClick={onBack}
+        >
           <ArrowLeft size={16} />
           Voltar
         </button>
@@ -617,7 +642,11 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
 
           {message && <div className="form-message error">{message}</div>}
 
-          <button className="primary-button" type="submit" disabled={loading}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={loading}
+          >
             {loading ? (
               <>
                 <RefreshCw size={17} className="spin" />
@@ -635,7 +664,11 @@ function LoginPage({ onSuccess, onSignup, onBack }) {
         <div className="auth-footer">
           <span>Ainda não possui acesso?</span>
 
-          <button className="text-button" onClick={onSignup}>
+          <button
+            type="button"
+            className="text-button"
+            onClick={onSignup}
+          >
             Criar conta de fornecedor
           </button>
         </div>
@@ -706,7 +739,11 @@ function SignupPage({ onBack, onSuccess }) {
             Confirme seu e-mail para acessar o portal.
           </p>
 
-          <button className="primary-button" onClick={onSuccess}>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={onSuccess}
+          >
             <LogIn size={17} />
             Voltar para o login
           </button>
@@ -718,7 +755,11 @@ function SignupPage({ onBack, onSuccess }) {
   return (
     <main className="page">
       <div className="auth-card">
-        <button className="back-button" onClick={onBack}>
+        <button
+          type="button"
+          className="back-button"
+          onClick={onBack}
+        >
           <ArrowLeft size={16} />
           Voltar
         </button>
@@ -769,14 +810,20 @@ function SignupPage({ onBack, onSuccess }) {
             <input
               type="password"
               value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
+              onChange={(event) =>
+                setConfirmPassword(event.target.value)
+              }
               required
             />
           </label>
 
           {message && <div className="form-message error">{message}</div>}
 
-          <button className="primary-button" type="submit" disabled={loading}>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={loading}
+          >
             {loading ? (
               <>
                 <RefreshCw size={17} className="spin" />
@@ -858,6 +905,7 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
         </div>
 
         <button
+          type="button"
           className="primary-button"
           onClick={() => setShowCreate(true)}
         >
@@ -880,7 +928,9 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
           <p>
             Cadastre o primeiro CNPJ para começar o processo de homologação.
           </p>
+
           <button
+            type="button"
             className="secondary-button"
             onClick={() => setShowCreate(true)}
           >
@@ -893,6 +943,7 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
           {companies.map((company) => (
             <article className="company-card" key={company.id}>
               <button
+                type="button"
                 className="company-card-main"
                 onClick={() => onOpenCompany(company)}
               >
@@ -905,13 +956,16 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
                   <p>{formatCnpj(company.cnpj)}</p>
 
                   <div className="company-modality">
-                    {company.modality || "Serviço/atividade não informado"}
+                    {company.modality ||
+                      "Serviço/atividade não informado"}
                   </div>
 
                   <div className="company-card-status">
                     <StatusBadge
                       status={company.submission_status}
-                      label={getCompanyStatusLabel(company.submission_status)}
+                      label={getCompanyStatusLabel(
+                        company.submission_status
+                      )}
                     />
                   </div>
                 </div>
@@ -920,6 +974,7 @@ function SupplierDashboard({ session, profile, onOpenCompany }) {
               </button>
 
               <button
+                type="button"
                 className="delete-company-button"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -995,7 +1050,11 @@ function CreateCompanyModal({ session, onClose, onCreated }) {
   return (
     <div className="modal-overlay">
       <div className="modal-card">
-        <button className="modal-close" onClick={onClose}>
+        <button
+          type="button"
+          className="modal-close"
+          onClick={onClose}
+        >
           <X size={20} />
         </button>
 
@@ -1109,33 +1168,42 @@ function SupplierCompanyPage({ session, company, onBack }) {
     setSaving(true);
     setMessage("");
 
-    const existing = documents.find((item) => item.type === payload.type);
+    const existing = documents.find(
+      (item) => item.type === payload.type
+    );
 
     const updateData = {
       company_id: company.id,
       type: payload.type,
-      file_path: payload.files?.[0]?.path || existing?.file_path || null,
+      file_path:
+        payload.files?.[0]?.path || existing?.file_path || null,
       original_name:
-        payload.files?.[0]?.name || existing?.original_name || null,
+        payload.files?.[0]?.name ||
+        existing?.original_name ||
+        null,
       files: payload.files || getDocumentFiles(existing),
       issue_date: payload.issue_date || null,
       expiry_date: payload.expiry_date || null,
       not_available: Boolean(payload.not_available),
       notes: payload.notes || existing?.notes || null,
       review_status:
-        existing?.review_status === "rejected" && payload.files?.length
+        existing?.review_status === "rejected" &&
+        payload.files?.length
           ? "pending"
           : existing?.review_status || "pending",
       reviewed_at:
-        existing?.review_status === "rejected" && payload.files?.length
+        existing?.review_status === "rejected" &&
+        payload.files?.length
           ? null
           : existing?.reviewed_at || null,
       reviewed_by:
-        existing?.review_status === "rejected" && payload.files?.length
+        existing?.review_status === "rejected" &&
+        payload.files?.length
           ? null
           : existing?.reviewed_by || null,
       review_notes:
-        existing?.review_status === "rejected" && payload.files?.length
+        existing?.review_status === "rejected" &&
+        payload.files?.length
           ? null
           : existing?.review_notes || null,
     };
@@ -1191,7 +1259,11 @@ function SupplierCompanyPage({ session, company, onBack }) {
       let files = data.files || [];
 
       if (data.fileObjects?.length) {
-        const uploaded = await uploadFiles(type, data.fileObjects);
+        const uploaded = await uploadFiles(
+          type,
+          data.fileObjects
+        );
+
         files = [...files, ...uploaded];
       }
 
@@ -1200,7 +1272,9 @@ function SupplierCompanyPage({ session, company, onBack }) {
         files,
       });
     } catch (error) {
-      setMessage(error.message || "Não foi possível enviar o arquivo.");
+      setMessage(
+        error.message || "Não foi possível enviar o arquivo."
+      );
       setSaving(false);
     }
   }
@@ -1212,7 +1286,10 @@ function SupplierCompanyPage({ session, company, onBack }) {
     const missing = [];
 
     for (const item of DOCUMENTS) {
-      const document = documents.find((doc) => doc.type === item.type);
+      const document = documents.find(
+        (doc) => doc.type === item.type
+      );
+
       const files = getDocumentFiles(document);
 
       if (item.required) {
@@ -1220,22 +1297,33 @@ function SupplierCompanyPage({ session, company, onBack }) {
           missing.push(item.label);
           continue;
         }
-      } else if (!files.length && !document?.not_available) {
-        missing.push(`${item.label} — envie o documento ou marque "Não possuímos"`);
+      } else if (
+        !files.length &&
+        !document?.not_available
+      ) {
+        missing.push(
+          `${item.label} — envie o documento ou marque "Não possuímos"`
+        );
         continue;
       }
 
       if (item.expires && files.length) {
         if (!document?.issue_date || !document?.expiry_date) {
-          missing.push(`${item.label} — informe a data de emissão`);
+          missing.push(
+            `${item.label} — informe a data de emissão`
+          );
           continue;
         }
 
-        const expectedExpiry = calculateExpiryDate(document.issue_date);
+        const expectedExpiry = calculateExpiryDate(
+          document.issue_date
+        );
 
         if (document.expiry_date !== expectedExpiry) {
           missing.push(
-            `${item.label} — a validade deve ser ${formatDate(expectedExpiry)}`
+            `${item.label} — a validade deve ser ${formatDate(
+              expectedExpiry
+            )}`
           );
           continue;
         }
@@ -1254,6 +1342,7 @@ function SupplierCompanyPage({ session, company, onBack }) {
           "\n• "
         )}`
       );
+
       setSubmissionLoading(false);
       return;
     }
@@ -1277,7 +1366,10 @@ function SupplierCompanyPage({ session, company, onBack }) {
 
     Object.assign(company, data);
 
-    setMessage("Documentação enviada para homologação com sucesso.");
+    setMessage(
+      "Documentação enviada para homologação com sucesso."
+    );
+
     setSubmissionLoading(false);
   }
 
@@ -1285,7 +1377,11 @@ function SupplierCompanyPage({ session, company, onBack }) {
     <main className="page">
       <div className="dashboard-heading">
         <div>
-          <button className="back-button" onClick={onBack}>
+          <button
+            type="button"
+            className="back-button"
+            onClick={onBack}
+          >
             <ArrowLeft size={16} />
             Meus CNPJs
           </button>
@@ -1304,7 +1400,9 @@ function SupplierCompanyPage({ session, company, onBack }) {
 
         <StatusBadge
           status={company.submission_status}
-          label={getCompanyStatusLabel(company.submission_status)}
+          label={getCompanyStatusLabel(
+            company.submission_status
+          )}
         />
       </div>
 
@@ -1347,8 +1445,12 @@ function SupplierCompanyPage({ session, company, onBack }) {
             <SupplierDocumentCard
               key={item.type}
               item={item}
-              document={documents.find((doc) => doc.type === item.type)}
-              onSave={(data) => handleDocumentSave(item.type, data)}
+              document={documents.find(
+                (doc) => doc.type === item.type
+              )}
+              onSave={(data) =>
+                handleDocumentSave(item.type, data)
+              }
               saving={saving}
             />
           ))}
@@ -1359,12 +1461,13 @@ function SupplierCompanyPage({ session, company, onBack }) {
         <div>
           <h2>Finalizar envio</h2>
           <p>
-            Confira todos os documentos e envie a documentação para análise da
-            Budel.
+            Confira todos os documentos e envie a documentação para
+            análise da Budel.
           </p>
         </div>
 
         <button
+          type="button"
           className="primary-button"
           onClick={submitForApproval}
           disabled={
@@ -1395,10 +1498,19 @@ function SupplierCompanyPage({ session, company, onBack }) {
   );
 }
 
-function SupplierDocumentCard({ item, document, onSave, saving }) {
+function SupplierDocumentCard({
+  item,
+  document,
+  onSave,
+  saving,
+}) {
   const [files, setFiles] = useState([]);
-  const [issueDate, setIssueDate] = useState(document?.issue_date || "");
-  const [expiryDate, setExpiryDate] = useState(document?.expiry_date || "");
+  const [issueDate, setIssueDate] = useState(
+    document?.issue_date || ""
+  );
+  const [expiryDate, setExpiryDate] = useState(
+    document?.expiry_date || ""
+  );
   const [notAvailable, setNotAvailable] = useState(
     Boolean(document?.not_available)
   );
@@ -1421,12 +1533,17 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
   }
 
   function handleFiles(event) {
-    const selected = Array.from(event.target.files || []);
+    const selected = Array.from(
+      event.target.files || []
+    );
 
     if (!selected.length) return;
 
     if (item.multiple) {
-      setFileObjects((current) => [...current, ...selected]);
+      setFileObjects((current) => [
+        ...current,
+        ...selected,
+      ]);
     } else {
       setFileObjects([selected[0]]);
     }
@@ -1436,36 +1553,53 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
 
   function removeSelectedFile(index) {
     setFileObjects((current) =>
-      current.filter((_file, fileIndex) => fileIndex !== index)
+      current.filter(
+        (_file, fileIndex) => fileIndex !== index
+      )
     );
   }
 
   async function handleSave() {
     setMessage("");
 
-    if (item.required && !files.length && !fileObjects.length) {
+    if (
+      item.required &&
+      !files.length &&
+      !fileObjects.length
+    ) {
       setMessage("Este documento é obrigatório.");
       return;
     }
 
-    if (!item.required && !files.length && !fileObjects.length && !notAvailable) {
+    if (
+      !item.required &&
+      !files.length &&
+      !fileObjects.length &&
+      !notAvailable
+    ) {
       setMessage(
         'Envie o documento ou marque "Não possuímos essa documentação".'
       );
       return;
     }
 
-    if (item.expires && (files.length || fileObjects.length)) {
+    if (
+      item.expires &&
+      (files.length || fileObjects.length)
+    ) {
       if (!issueDate) {
         setMessage("Informe a data de emissão.");
         return;
       }
 
-      const expectedExpiry = calculateExpiryDate(issueDate);
+      const expectedExpiry =
+        calculateExpiryDate(issueDate);
 
       if (expiryDate !== expectedExpiry) {
         setMessage(
-          `A validade deve ser ${formatDate(expectedExpiry)}.`
+          `A validade deve ser ${formatDate(
+            expectedExpiry
+          )}.`
         );
         return;
       }
@@ -1507,7 +1641,9 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
           <div>
             <h3>
               {item.label}{" "}
-              {item.required && <span className="required-mark">*</span>}
+              {item.required && (
+                <span className="required-mark">*</span>
+              )}
             </h3>
 
             <p>{item.description}</p>
@@ -1515,7 +1651,9 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
         </div>
 
         {status && (
-          <span className={`status-badge ${status.className}`}>
+          <span
+            className={`status-badge ${status.className}`}
+          >
             {status.label}
           </span>
         )}
@@ -1558,9 +1696,14 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
           ) : (
             <>
               <strong>
-                Clique para selecionar {item.multiple ? "os arquivos" : "o arquivo"}
+                Clique para selecionar{" "}
+                {item.multiple
+                  ? "os arquivos"
+                  : "o arquivo"}
               </strong>
-              <span>PDF, JPG, PNG ou outro formato permitido</span>
+              <span>
+                PDF, JPG, PNG ou outro formato permitido
+              </span>
             </>
           )}
 
@@ -1574,14 +1717,19 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
         {fileObjects.length > 0 && (
           <div className="selected-files">
             {fileObjects.map((file, index) => (
-              <div className="selected-file" key={`${file.name}-${index}`}>
+              <div
+                className="selected-file"
+                key={`${file.name}-${index}`}
+              >
                 <FileText size={16} />
                 <span>{file.name}</span>
 
                 <button
                   type="button"
                   className="icon-button"
-                  onClick={() => removeSelectedFile(index)}
+                  onClick={() =>
+                    removeSelectedFile(index)
+                  }
                 >
                   <X size={15} />
                 </button>
@@ -1593,7 +1741,10 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
         {files.length > 0 && (
           <div className="selected-files">
             {files.map((file, index) => (
-              <div className="selected-file" key={`${file.path}-${index}`}>
+              <div
+                className="selected-file"
+                key={`${file.path}-${index}`}
+              >
                 <FileText size={16} />
                 <span>{file.name}</span>
               </div>
@@ -1609,7 +1760,9 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
                 type="date"
                 value={issueDate}
                 onChange={(event) =>
-                  handleIssueDateChange(event.target.value)
+                  handleIssueDateChange(
+                    event.target.value
+                  )
                 }
               />
             </label>
@@ -1628,8 +1781,8 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
         {item.expires && issueDate && (
           <div className="required-document-notice">
             <Info size={15} />
-            A validade é calculada automaticamente como 1 ano menos 1 dia
-            após a emissão.
+            A validade é calculada automaticamente como 1 ano menos 1
+            dia após a emissão.
           </div>
         )}
 
@@ -1677,13 +1830,17 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
           )}
 
           <button
+            type="button"
             className="secondary-button small-button"
             onClick={handleSave}
             disabled={saving}
           >
             {saving ? (
               <>
-                <RefreshCw size={15} className="spin" />
+                <RefreshCw
+                  size={15}
+                  className="spin"
+                />
                 Salvando...
               </>
             ) : (
@@ -1699,15 +1856,25 @@ function SupplierDocumentCard({ item, document, onSave, saving }) {
   );
 }
 
-function AdminDashboard({ session, adminProfile, onOpenCompany }) {
+function AdminDashboard({
+  session,
+  adminProfile,
+  onOpenCompany,
+}) {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
+  const [showCreateAdmin, setShowCreateAdmin] =
+    useState(false);
 
-  const canManageUsers = adminCanManageUsers(adminProfile);
-  const canReview = adminCanReview(adminProfile);
-  const viewOnly = adminIsViewOnly(adminProfile);
+  const canManageUsers =
+    adminCanManageUsers(adminProfile);
+
+  const canReview =
+    adminCanReview(adminProfile);
+
+  const viewOnly =
+    adminIsViewOnly(adminProfile);
 
   async function loadCompanies() {
     setLoading(true);
@@ -1728,7 +1895,10 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
     }
 
     const visible = (data || []).filter((company) =>
-      adminCanViewCompany(adminProfile, company.modality)
+      adminCanViewCompany(
+        adminProfile,
+        company.modality
+      )
     );
 
     setCompanies(visible);
@@ -1748,7 +1918,9 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
       "Razão Social": company.legal_name,
       CNPJ: formatCnpj(company.cnpj),
       "Serviço/atividade": company.modality || "",
-      Status: getCompanyStatusLabel(company.submission_status),
+      Status: getCompanyStatusLabel(
+        company.submission_status
+      ),
       "Data de envio": formatDate(
         company.submitted_at?.slice(0, 10)
       ),
@@ -1758,8 +1930,11 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
       Observação: company.review_notes || "",
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
+    const worksheet =
+      XLSX.utils.json_to_sheet(rows);
+
+    const workbook =
+      XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(
       workbook,
@@ -1779,8 +1954,12 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
     <main className="page">
       <div className="dashboard-heading">
         <div>
-          <div className="section-kicker">Área administrativa</div>
+          <div className="section-kicker">
+            Área administrativa
+          </div>
+
           <h1>Homologação de fornecedores</h1>
+
           <p>
             Empresas que já foram enviadas para análise.
           </p>
@@ -1788,6 +1967,7 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
 
         <div className="dashboard-actions">
           <button
+            type="button"
             className="secondary-button"
             onClick={exportExcel}
             disabled={!companies.length}
@@ -1798,8 +1978,11 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
 
           {canManageUsers && (
             <button
+              type="button"
               className="secondary-button"
-              onClick={() => setShowCreateAdmin(true)}
+              onClick={() =>
+                setShowCreateAdmin(true)
+              }
             >
               <UserPlus size={17} />
               Cadastrar administrador
@@ -1811,11 +1994,15 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
       {viewOnly && (
         <div className="notice-card info">
           <Eye size={19} />
+
           <div>
-            <strong>Modo somente visualização</strong>
+            <strong>
+              Modo somente visualização
+            </strong>
+
             <p>
-              Você pode consultar as empresas e documentos, mas não pode
-              aprovar ou rejeitar.
+              Você pode consultar as empresas e documentos, mas não
+              pode aprovar ou rejeitar.
             </p>
           </div>
         </div>
@@ -1824,8 +2011,10 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
       {!canReview && !viewOnly && (
         <div className="notice-card info">
           <KeyRound size={19} />
+
           <div>
             <strong>Acesso por categoria</strong>
+
             <p>
               Você visualiza as empresas relacionadas às palavras-chave
               cadastradas no seu perfil.
@@ -1842,25 +2031,33 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
 
       {loading ? (
         <div className="loading-box">
-          <RefreshCw size={22} className="spin" />
+          <RefreshCw
+            size={22}
+            className="spin"
+          />
           Carregando empresas...
         </div>
       ) : companies.length === 0 ? (
         <div className="empty-state">
           <ClipboardCheck size={38} />
+
           <h2>Nenhuma empresa disponível</h2>
+
           <p>
-            No momento não há empresas enviadas para homologação dentro do
-            seu acesso.
+            No momento não há empresas enviadas para homologação dentro
+            do seu acesso.
           </p>
         </div>
       ) : (
         <div className="company-grid">
           {companies.map((company) => (
             <button
+              type="button"
               key={company.id}
               className="company-card company-card-main admin-company-card"
-              onClick={() => onOpenCompany(company)}
+              onClick={() =>
+                onOpenCompany(company)
+              }
             >
               <div className="company-icon">
                 <FileCheck2 size={23} />
@@ -1872,18 +2069,24 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
                 <p>{formatCnpj(company.cnpj)}</p>
 
                 <div className="company-modality">
-                  {company.modality || "Serviço/atividade não informado"}
+                  {company.modality ||
+                    "Serviço/atividade não informado"}
                 </div>
 
                 <div className="company-card-status">
                   <StatusBadge
                     status={company.submission_status}
-                    label={getCompanyStatusLabel(company.submission_status)}
+                    label={getCompanyStatusLabel(
+                      company.submission_status
+                    )}
                   />
                 </div>
               </div>
 
-              <ChevronRight size={20} className="company-arrow" />
+              <ChevronRight
+                size={20}
+                className="company-arrow"
+              />
             </button>
           ))}
         </div>
@@ -1891,15 +2094,22 @@ function AdminDashboard({ session, adminProfile, onOpenCompany }) {
 
       {showCreateAdmin && (
         <CreateAdminForm
-          onClose={() => setShowCreateAdmin(false)}
-          onCreated={() => setShowCreateAdmin(false)}
+          onClose={() =>
+            setShowCreateAdmin(false)
+          }
+          onCreated={() =>
+            setShowCreateAdmin(false)
+          }
         />
       )}
     </main>
   );
 }
 
-function CreateAdminForm({ onClose, onCreated }) {
+function CreateAdminForm({
+  onClose,
+  onCreated,
+}) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [keywords, setKeywords] = useState("");
@@ -1912,19 +2122,24 @@ function CreateAdminForm({ onClose, onCreated }) {
     setLoading(true);
     setMessage("");
 
-    const { data, error } = await supabase.functions.invoke(
-      "create-admin",
-      {
-        body: {
-          name: name.trim(),
-          email: email.trim(),
-          keywords: keywords.trim(),
-        },
-      }
-    );
+    const { data, error } =
+      await supabase.functions.invoke(
+        "create-admin",
+        {
+          body: {
+            name: name.trim(),
+            email: email.trim(),
+            keywords: keywords.trim(),
+          },
+        }
+      );
 
     if (error) {
-      setMessage(error.message || "Não foi possível cadastrar o administrador.");
+      setMessage(
+        error.message ||
+          "Não foi possível cadastrar o administrador."
+      );
+
       setLoading(false);
       return;
     }
@@ -1946,7 +2161,11 @@ function CreateAdminForm({ onClose, onCreated }) {
   return (
     <div className="admin-modal-overlay">
       <div className="admin-modal">
-        <button className="modal-close admin-modal-close" onClick={onClose}>
+        <button
+          type="button"
+          className="modal-close admin-modal-close"
+          onClick={onClose}
+        >
           <X size={20} />
         </button>
 
@@ -1957,18 +2176,24 @@ function CreateAdminForm({ onClose, onCreated }) {
 
           <div>
             <h2>Cadastrar administrador</h2>
+
             <p>
               Defina o nível de acesso que esse administrador terá.
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleCreate} className="form">
+        <form
+          onSubmit={handleCreate}
+          className="form"
+        >
           <label>
             Nome
             <input
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) =>
+                setName(event.target.value)
+              }
               placeholder="Nome do administrador"
               required
             />
@@ -1979,7 +2204,9 @@ function CreateAdminForm({ onClose, onCreated }) {
             <input
               type="email"
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               placeholder="email@empresa.com.br"
               required
             />
@@ -1989,7 +2216,9 @@ function CreateAdminForm({ onClose, onCreated }) {
             Categoria de palavras-chave
             <input
               value={keywords}
-              onChange={(event) => setKeywords(event.target.value)}
+              onChange={(event) =>
+                setKeywords(event.target.value)
+              }
               placeholder="Ex.: LAVAGEM, VAPOR, EXAUSTOR"
             />
           </label>
@@ -2002,13 +2231,14 @@ function CreateAdminForm({ onClose, onCreated }) {
             </span>
 
             <span>
-              • VISUALIZAR: pode visualizar tudo, mas não pode aprovar ou
-              rejeitar.
+              • VISUALIZAR: pode visualizar tudo, mas não pode aprovar
+              ou rejeitar.
             </span>
 
             <span>
-              • Palavras-chave: poderá visualizar e analisar apenas empresas
-              cujo serviço/atividade contenha uma das palavras informadas.
+              • Palavras-chave: poderá visualizar e analisar apenas
+              empresas cujo serviço/atividade contenha uma das palavras
+              informadas.
             </span>
 
             <span>
@@ -2038,7 +2268,10 @@ function CreateAdminForm({ onClose, onCreated }) {
             >
               {loading ? (
                 <>
-                  <RefreshCw size={16} className="spin" />
+                  <RefreshCw
+                    size={16}
+                    className="spin"
+                  />
                   Cadastrando...
                 </>
               ) : (
@@ -2061,25 +2294,38 @@ function AdminCompanyPage({
   adminProfile,
   onBack,
 }) {
-  const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const [reviewNotes, setReviewNotes] = useState(
-    company.review_notes || ""
-  );
-  const [savingCompany, setSavingCompany] = useState(false);
+  const [documents, setDocuments] =
+    useState([]);
 
-  const canReview = adminCanReview(adminProfile);
-  const viewOnly = adminIsViewOnly(adminProfile);
+  const [loading, setLoading] =
+    useState(true);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [reviewNotes, setReviewNotes] =
+    useState(company.review_notes || "");
+
+  const [savingCompany, setSavingCompany] =
+    useState(false);
+
+  const canReview =
+    adminCanReview(adminProfile);
+
+  const viewOnly =
+    adminIsViewOnly(adminProfile);
 
   async function loadDocuments() {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from("documents")
-      .select("*")
-      .eq("company_id", company.id)
-      .order("created_at", { ascending: true });
+    const { data, error } =
+      await supabase
+        .from("documents")
+        .select("*")
+        .eq("company_id", company.id)
+        .order("created_at", {
+          ascending: true,
+        });
 
     if (error) {
       setMessage(error.message);
@@ -2094,18 +2340,24 @@ function AdminCompanyPage({
     loadDocuments();
   }, [company.id]);
 
-  async function updateDocumentReview(document, reviewStatus, notes) {
+  async function updateDocumentReview(
+    document,
+    reviewStatus,
+    notes
+  ) {
     if (!canReview) return;
 
-    const { error } = await supabase
-      .from("documents")
-      .update({
-        review_status: reviewStatus,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: session.user.id,
-        review_notes: notes || null,
-      })
-      .eq("id", document.id);
+    const { error } =
+      await supabase
+        .from("documents")
+        .update({
+          review_status: reviewStatus,
+          reviewed_at:
+            new Date().toISOString(),
+          reviewed_by: session.user.id,
+          review_notes: notes || null,
+        })
+        .eq("id", document.id);
 
     if (error) {
       setMessage(error.message);
@@ -2115,23 +2367,28 @@ function AdminCompanyPage({
     await loadDocuments();
   }
 
-  async function updateCompanyStatus(status) {
+  async function updateCompanyStatus(
+    status
+  ) {
     if (!canReview) return;
 
     setSavingCompany(true);
     setMessage("");
 
-    const { data, error } = await supabase
-      .from("companies")
-      .update({
-        submission_status: status,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: session.user.id,
-        review_notes: reviewNotes.trim() || null,
-      })
-      .eq("id", company.id)
-      .select()
-      .single();
+    const { data, error } =
+      await supabase
+        .from("companies")
+        .update({
+          submission_status: status,
+          reviewed_at:
+            new Date().toISOString(),
+          reviewed_by: session.user.id,
+          review_notes:
+            reviewNotes.trim() || null,
+        })
+        .eq("id", company.id)
+        .select()
+        .single();
 
     if (error) {
       setMessage(error.message);
@@ -2144,9 +2401,13 @@ function AdminCompanyPage({
     setSavingCompany(false);
 
     if (status === "approved") {
-      setMessage("Fornecedor homologado com sucesso.");
+      setMessage(
+        "Fornecedor homologado com sucesso."
+      );
     } else {
-      setMessage("Fornecedor marcado para correções.");
+      setMessage(
+        "Fornecedor marcado para correções."
+      );
     }
   }
 
@@ -2154,12 +2415,18 @@ function AdminCompanyPage({
     <main className="page">
       <div className="dashboard-heading">
         <div>
-          <button className="back-button" onClick={onBack}>
+          <button
+            type="button"
+            className="back-button"
+            onClick={onBack}
+          >
             <ArrowLeft size={16} />
             Voltar
           </button>
 
-          <div className="section-kicker">Análise de fornecedor</div>
+          <div className="section-kicker">
+            Análise de fornecedor
+          </div>
 
           <h1>{company.legal_name}</h1>
 
@@ -2167,13 +2434,16 @@ function AdminCompanyPage({
             CNPJ: {formatCnpj(company.cnpj)}
             <br />
             Serviço/atividade:{" "}
-            {company.modality || "Não informado"}
+            {company.modality ||
+              "Não informado"}
           </p>
         </div>
 
         <StatusBadge
           status={company.submission_status}
-          label={getCompanyStatusLabel(company.submission_status)}
+          label={getCompanyStatusLabel(
+            company.submission_status
+          )}
         />
       </div>
 
@@ -2182,7 +2452,10 @@ function AdminCompanyPage({
           <Eye size={19} />
 
           <div>
-            <strong>Somente visualização</strong>
+            <strong>
+              Somente visualização
+            </strong>
+
             <p>
               Você possui acesso aos documentos, mas não pode aprovar ou
               rejeitar.
@@ -2199,15 +2472,20 @@ function AdminCompanyPage({
 
       {loading ? (
         <div className="loading-box">
-          <RefreshCw size={22} className="spin" />
+          <RefreshCw
+            size={22}
+            className="spin"
+          />
           Carregando documentos...
         </div>
       ) : (
         <div className="documents-list">
           {DOCUMENTS.map((item) => {
-            const document = documents.find(
-              (doc) => doc.type === item.type
-            );
+            const document =
+              documents.find(
+                (doc) =>
+                  doc.type === item.type
+              );
 
             return (
               <AdminDocumentCard
@@ -2215,7 +2493,9 @@ function AdminCompanyPage({
                 item={item}
                 document={document}
                 canReview={canReview}
-                onReview={updateDocumentReview}
+                onReview={
+                  updateDocumentReview
+                }
               />
             );
           })}
@@ -2225,8 +2505,14 @@ function AdminCompanyPage({
       {canReview && (
         <section className="admin-review-panel">
           <div>
-            <div className="section-kicker">Conclusão</div>
-            <h2>Resultado da homologação</h2>
+            <div className="section-kicker">
+              Conclusão
+            </div>
+
+            <h2>
+              Resultado da homologação
+            </h2>
+
             <p>
               Após analisar a documentação, registre a decisão da Budel.
             </p>
@@ -2236,7 +2522,11 @@ function AdminCompanyPage({
             Observação
             <textarea
               value={reviewNotes}
-              onChange={(event) => setReviewNotes(event.target.value)}
+              onChange={(event) =>
+                setReviewNotes(
+                  event.target.value
+                )
+              }
               placeholder="Informe observações ou correções necessárias..."
               rows={5}
             />
@@ -2244,8 +2534,13 @@ function AdminCompanyPage({
 
           <div className="form-actions">
             <button
+              type="button"
               className="secondary-button danger-button"
-              onClick={() => updateCompanyStatus("rejected")}
+              onClick={() =>
+                updateCompanyStatus(
+                  "rejected"
+                )
+              }
               disabled={savingCompany}
             >
               <X size={17} />
@@ -2253,8 +2548,13 @@ function AdminCompanyPage({
             </button>
 
             <button
+              type="button"
               className="primary-button"
-              onClick={() => updateCompanyStatus("approved")}
+              onClick={() =>
+                updateCompanyStatus(
+                  "approved"
+                )
+              }
               disabled={savingCompany}
             >
               <Check size={17} />
@@ -2273,28 +2573,47 @@ function AdminDocumentCard({
   canReview,
   onReview,
 }) {
-  const [notes, setNotes] = useState(
-    document?.review_notes || ""
-  );
-  const [loading, setLoading] = useState(false);
+  const [notes, setNotes] =
+    useState(
+      document?.review_notes || ""
+    );
+
+  const [loading, setLoading] =
+    useState(false);
 
   useEffect(() => {
-    setNotes(document?.review_notes || "");
+    setNotes(
+      document?.review_notes || ""
+    );
   }, [document]);
 
-  const files = getDocumentFiles(document);
+  const files =
+    getDocumentFiles(document);
 
   const status =
-    item.expires && document?.expiry_date
-      ? expiryStatus(document.expiry_date)
+    item.expires &&
+    document?.expiry_date
+      ? expiryStatus(
+          document.expiry_date
+        )
       : null;
 
-  async function review(statusValue) {
-    if (!document || !canReview) return;
+  async function review(
+    statusValue
+  ) {
+    if (
+      !document ||
+      !canReview
+    )
+      return;
 
     setLoading(true);
 
-    await onReview(document, statusValue, notes);
+    await onReview(
+      document,
+      statusValue,
+      notes
+    );
 
     setLoading(false);
   }
@@ -2304,7 +2623,8 @@ function AdminDocumentCard({
       <div className="document-top">
         <div className="document-title">
           <div className="document-icon">
-            {item.type === "fotos_local" ? (
+            {item.type ===
+            "fotos_local" ? (
               <ImageIcon size={21} />
             ) : (
               <FileText size={21} />
@@ -2315,7 +2635,9 @@ function AdminDocumentCard({
             <h3>
               {item.label}{" "}
               {item.required && (
-                <span className="required-mark">*</span>
+                <span className="required-mark">
+                  *
+                </span>
               )}
             </h3>
 
@@ -2325,7 +2647,9 @@ function AdminDocumentCard({
 
         <div className="document-status-group">
           {status && (
-            <span className={`status-badge ${status.className}`}>
+            <span
+              className={`status-badge ${status.className}`}
+            >
               {status.label}
             </span>
           )}
@@ -2333,25 +2657,37 @@ function AdminDocumentCard({
           {document?.review_status && (
             <span
               className={`status-badge ${
-                document.review_status === "approved"
+                document.review_status ===
+                "approved"
                   ? "status-ok"
-                  : document.review_status === "rejected"
+                  : document.review_status ===
+                    "rejected"
                   ? "status-danger"
                   : ""
               }`}
             >
-              {STATUS_LABELS[document.review_status]}
+              {
+                STATUS_LABELS[
+                  document.review_status
+                ]
+              }
             </span>
           )}
         </div>
       </div>
 
       <div className="document-body">
-        {!document || (!files.length && !document.not_available) ? (
+        {!document ||
+        (!files.length &&
+          !document.not_available) ? (
           <div className="notice-card warning">
             <AlertCircle size={18} />
+
             <div>
-              <strong>Documento não enviado</strong>
+              <strong>
+                Documento não enviado
+              </strong>
+
               <p>
                 O fornecedor ainda não enviou este documento.
               </p>
@@ -2360,19 +2696,24 @@ function AdminDocumentCard({
         ) : document.not_available ? (
           <div className="notice-card info">
             <Info size={18} />
+
             <div>
-              <strong>Fornecedor informou que não possui</strong>
+              <strong>
+                Fornecedor informou que não possui
+              </strong>
             </div>
           </div>
         ) : (
           <>
             <div className="selected-files">
-              {files.map((file, index) => (
-                <AdminFileItem
-                  key={`${file.path}-${index}`}
-                  file={file}
-                />
-              ))}
+              {files.map(
+                (file, index) => (
+                  <AdminFileItem
+                    key={`${file.path}-${index}`}
+                    file={file}
+                  />
+                )
+              )}
             </div>
 
             {item.expires && (
@@ -2381,7 +2722,10 @@ function AdminDocumentCard({
                   Data de emissão
                   <input
                     type="date"
-                    value={document.issue_date || ""}
+                    value={
+                      document.issue_date ||
+                      ""
+                    }
                     readOnly
                   />
                 </label>
@@ -2390,7 +2734,10 @@ function AdminDocumentCard({
                   Data de validade
                   <input
                     type="date"
-                    value={document.expiry_date || ""}
+                    value={
+                      document.expiry_date ||
+                      ""
+                    }
                     readOnly
                   />
                 </label>
@@ -2399,73 +2746,158 @@ function AdminDocumentCard({
           </>
         )}
 
-        {document?.review_status === "rejected" &&
+        {document?.review_status ===
+          "rejected" &&
           document.review_notes && (
             <div className="notice-card warning">
               <AlertCircle size={18} />
 
               <div>
-                <strong>Observação da análise</strong>
-                <p>{document.review_notes}</p>
+                <strong>
+                  Observação da análise
+                </strong>
+
+                <p>
+                  {document.review_notes}
+                </p>
               </div>
             </div>
           )}
 
-        {canReview && document && files.length > 0 && (
-          <>
-            <label>
-              Observação deste documento
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Informe uma observação..."
-                rows={3}
-              />
-            </label>
+        {canReview &&
+          document &&
+          files.length > 0 && (
+            <>
+              <label>
+                Observação deste documento
+                <textarea
+                  value={notes}
+                  onChange={(event) =>
+                    setNotes(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Informe uma observação..."
+                  rows={3}
+                />
+              </label>
 
-            <div className="document-actions">
-              <button
-                className="secondary-button small-button danger-button"
-                onClick={() => review("rejected")}
-                disabled={loading}
-              >
-                <X size={15} />
-                Rejeitar documento
-              </button>
+              <div className="document-actions">
+                <button
+                  type="button"
+                  className="secondary-button small-button danger-button"
+                  onClick={() =>
+                    review("rejected")
+                  }
+                  disabled={loading}
+                >
+                  <X size={15} />
+                  Rejeitar documento
+                </button>
 
-              <button
-                className="secondary-button small-button success-button"
-                onClick={() => review("approved")}
-                disabled={loading}
-              >
-                <Check size={15} />
-                Aprovar documento
-              </button>
-            </div>
-          </>
-        )}
+                <button
+                  type="button"
+                  className="secondary-button small-button success-button"
+                  onClick={() =>
+                    review("approved")
+                  }
+                  disabled={loading}
+                >
+                  <Check size={15} />
+                  Aprovar documento
+                </button>
+              </div>
+            </>
+          )}
       </div>
     </article>
   );
 }
 
+/*
+ * CORREÇÃO DO VISUALIZAR PDF
+ *
+ * Abrimos uma aba em branco ANTES de esperar o Supabase.
+ * Depois que a URL assinada for criada, colocamos essa URL na nova aba.
+ *
+ * Isso evita que o navegador interprete o clique como navegação
+ * dentro do próprio portal e volte para a página inicial.
+ */
 function AdminFileItem({ file }) {
   const [url, setUrl] = useState("");
 
   async function openFile() {
-    const { data, error } = await supabase.storage
-      .from("supplier-documents")
-      .createSignedUrl(file.path, 300);
+    const newTab = window.open(
+      "",
+      "_blank"
+    );
 
-    if (error) {
-      alert(error.message);
+    if (!newTab) {
+      alert(
+        "O navegador bloqueou a nova aba. Permita pop-ups para este site e tente novamente."
+      );
       return;
     }
 
-    setUrl(data?.signedUrl || "");
+    newTab.document.write(`
+      <html>
+        <head>
+          <title>Carregando documento...</title>
+          <style>
+            body {
+              margin: 0;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              font-family: Arial, sans-serif;
+              color: #555;
+            }
+          </style>
+        </head>
+        <body>
+          Carregando documento...
+        </body>
+      </html>
+    `);
 
-    if (data?.signedUrl) {
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    try {
+      const { data, error } =
+        await supabase.storage
+          .from("supplier-documents")
+          .createSignedUrl(
+            file.path,
+            300
+          );
+
+      if (error) {
+        newTab.close();
+        alert(error.message);
+        return;
+      }
+
+      const signedUrl =
+        data?.signedUrl || "";
+
+      if (!signedUrl) {
+        newTab.close();
+        alert(
+          "Não foi possível gerar o link para visualizar o documento."
+        );
+        return;
+      }
+
+      setUrl(signedUrl);
+
+      newTab.location.href =
+        signedUrl;
+    } catch (error) {
+      newTab.close();
+
+      alert(
+        error?.message ||
+          "Não foi possível visualizar o documento."
+      );
     }
   }
 
@@ -2488,8 +2920,9 @@ function AdminFileItem({ file }) {
         <a
           href={url}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           className="secondary-button small-button"
+          download
         >
           <Download size={15} />
           Baixar
@@ -2499,22 +2932,32 @@ function AdminFileItem({ file }) {
   );
 }
 
-function StatusBadge({ status, label }) {
+function StatusBadge({
+  status,
+  label,
+}) {
   let className = "";
 
   if (status === "approved") {
     className = "status-ok";
-  } else if (status === "rejected") {
+  } else if (
+    status === "rejected"
+  ) {
     className = "status-danger";
-  } else if (status === "submitted") {
+  } else if (
+    status === "submitted"
+  ) {
     className = "status-warning";
   }
 
   return (
-    <span className={`status-badge ${className}`}>
+    <span
+      className={`status-badge ${className}`}
+    >
       {label}
     </span>
   );
 }
 
 export default App;
+```
