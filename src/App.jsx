@@ -16,6 +16,7 @@ import {
   ShieldX,
   Eye,
   FileSpreadsheet,
+  UserPlus,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "./lib/supabase";
@@ -108,6 +109,99 @@ function companyStatusLabel(status) {
   if (status === "submitted") return "Em análise";
 
   return "Rascunho";
+}
+
+/*
+  Regra da Budel:
+  documento emitido em 16/09/2026
+  vale até 15/09/2027.
+
+  Ou seja:
+  data de validade = data de emissão + 1 ano - 1 dia.
+*/
+function calculateExpiryDate(issueDate) {
+  if (!issueDate) return "";
+
+  const date = new Date(`${issueDate}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  date.setFullYear(date.getFullYear() + 1);
+  date.setDate(date.getDate() - 1);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeText(value = "") {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function keywordList(value = "") {
+  return normalizeText(value)
+    .split(/[,;|\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function adminIsViewOnly(profile) {
+  return keywordList(profile?.admin_keywords).includes(
+    "visualizar"
+  );
+}
+
+function adminCanReview(profile) {
+  if (!profile || profile.role !== "admin") {
+    return false;
+  }
+
+  if (profile.admin_can_manage_users === true) {
+    return true;
+  }
+
+  return !adminIsViewOnly(profile);
+}
+
+function adminCanManageUsers(profile) {
+  return (
+    profile?.role === "admin" &&
+    profile?.admin_can_manage_users === true
+  );
+}
+
+function adminCanViewCompany(company, profile) {
+  if (!profile || profile.role !== "admin") {
+    return false;
+  }
+
+  if (company?.submission_status === "draft") {
+    return false;
+  }
+
+  if (profile.admin_can_manage_users === true) {
+    return true;
+  }
+
+  const keywords = keywordList(profile.admin_keywords);
+
+  if (keywords.length === 0) {
+    return true;
+  }
+
+  if (keywords.includes("visualizar")) {
+    return true;
+  }
+
+  const companyText = normalizeText(company?.modality || "");
+
+  return keywords.some((keyword) =>
+    companyText.includes(keyword)
+  );
 }
 
 function ReviewBadge({ status }) {
@@ -309,13 +403,14 @@ function AuthPage({ mode, setMode, onBack }) {
             data: {
               full_name: name.trim(),
             },
+            emailRedirectTo: window.location.origin,
           },
         });
 
         if (error) throw error;
 
         setMessage(
-          "Cadastro criado! Verifique seu e-mail para confirmar a conta antes de entrar."
+          "Cadastro criado! Verifique seu e-mail para confirmar a conta. Ao clicar no link, você será direcionado novamente para o portal."
         );
       } else {
         const { error } = await supabase.auth.signInWithPassword({
@@ -837,21 +932,27 @@ function DocumentsPage({ company, onBack }) {
     try {
       const existing = documentMap[type];
 
-      let files = Array.isArray(existing?.files)
-        ? [...existing.files]
-        : [];
-
-      if (files.length === 0 && existing?.file_path) {
-        files.push({
-          path: existing.file_path,
-          name: existing.original_name || "Documento",
-        });
-      }
-
       /*
-        Se o fornecedor enviar novos arquivos depois de uma reprovação,
-        os novos arquivos ficam novamente em análise.
+        Se o documento estava reprovado e o fornecedor
+        enviou novos arquivos, os arquivos antigos são
+        substituídos pelos novos.
       */
+      let files = [];
+
+      if (
+        existing?.review_status !== "rejected"
+      ) {
+        files = Array.isArray(existing?.files)
+          ? [...existing.files]
+          : [];
+
+        if (files.length === 0 && existing?.file_path) {
+          files.push({
+            path: existing.file_path,
+            name: existing.original_name || "Documento",
+          });
+        }
+      }
 
       if (values.files?.length) {
         for (const file of values.files) {
@@ -877,6 +978,17 @@ function DocumentsPage({ company, onBack }) {
             name: file.name,
           });
         }
+      }
+
+      if (
+        existing?.review_status === "rejected" &&
+        values.files?.length
+      ) {
+        /*
+          Os arquivos novos já são os únicos arquivos
+          considerados para o documento.
+        */
+        files = files.slice(-values.files.length);
       }
 
       const firstFile = files[0] || null;
@@ -911,18 +1023,17 @@ function DocumentsPage({ company, onBack }) {
         throw dbError;
       }
 
-      /*
-        Se havia reprovação da Budel e o fornecedor atualizou o documento,
-        a empresa volta para análise quando o fornecedor enviar novamente.
-      */
-
       if (existing?.review_status === "rejected") {
-        await supabase
+        const { error: companyError } = await supabase
           .from("companies")
           .update({
             submission_status: "draft",
           })
           .eq("id", company.id);
+
+        if (companyError) {
+          throw companyError;
+        }
       }
 
       setDocuments((current) => [
@@ -991,6 +1102,35 @@ function DocumentsPage({ company, onBack }) {
       return;
     }
 
+    /*
+      Confere a regra exata:
+      emissão + 1 ano - 1 dia.
+    */
+    const invalidExpiry = documentTypes.filter((item) => {
+      const doc = documentMap[item.key];
+
+      if (!doc || doc.not_available || !item.expires) {
+        return false;
+      }
+
+      if (!doc.issue_date || !doc.expiry_date) {
+        return false;
+      }
+
+      return (
+        calculateExpiryDate(doc.issue_date) !==
+        doc.expiry_date
+      );
+    });
+
+    if (invalidExpiry.length > 0) {
+      setError(
+        "Existem documentos com data de validade diferente da regra permitida: a validade deve ser exatamente 1 ano menos 1 dia após a data de emissão."
+      );
+
+      return;
+    }
+
     const expired = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
 
@@ -1025,6 +1165,8 @@ function DocumentsPage({ company, onBack }) {
       setError(error.message);
       return;
     }
+
+    company.submission_status = "submitted";
 
     setMessage(
       "Documentação enviada para homologação com sucesso!"
@@ -1097,9 +1239,10 @@ function DocumentsPage({ company, onBack }) {
 
       {company.submission_status === "rejected" && (
         <div className="alert error">
-          A homologação foi reprovada pela Budel. Verifique as observações
-          dos documentos, atualize o que for necessário e envie novamente
-          para análise.
+          <strong>A homologação foi reprovada pela Budel.</strong>
+          <br />
+          {company.review_notes ||
+            "Verifique as observações dos documentos, atualize o que for necessário e envie novamente para análise."}
         </div>
       )}
 
@@ -1262,9 +1405,33 @@ function DocumentCard({
     if (
       !notAvailable &&
       item.expires &&
+      !issueDate
+    ) {
+      alert("Informe a data de emissão do documento.");
+
+      return;
+    }
+
+    if (
+      !notAvailable &&
+      item.expires &&
       !expiryDate
     ) {
       alert("Informe a validade do documento.");
+
+      return;
+    }
+
+    if (
+      !notAvailable &&
+      item.expires &&
+      calculateExpiryDate(issueDate) !== expiryDate
+    ) {
+      alert(
+        `A validade deve ser ${calculateExpiryDate(
+          issueDate
+        )}, considerando a regra de 1 ano menos 1 dia.`
+      );
 
       return;
     }
@@ -1277,6 +1444,16 @@ function DocumentCard({
         ? false
         : notAvailable,
     });
+  }
+
+  function handleIssueDateChange(value) {
+    setIssueDate(value);
+
+    if (item.expires && value) {
+      setExpiryDate(calculateExpiryDate(value));
+    } else {
+      setExpiryDate("");
+    }
   }
 
   return (
@@ -1326,7 +1503,6 @@ function DocumentCard({
       </div>
 
       <div className="document-body">
-
         {document?.review_status === "rejected" &&
           document?.review_notes && (
             <div className="alert error">
@@ -1389,7 +1565,7 @@ function DocumentCard({
               type="date"
               value={issueDate}
               onChange={(e) =>
-                setIssueDate(e.target.value)
+                handleIssueDateChange(e.target.value)
               }
               disabled={notAvailable}
             />
@@ -1401,9 +1577,7 @@ function DocumentCard({
             <input
               type="date"
               value={expiryDate}
-              onChange={(e) =>
-                setExpiryDate(e.target.value)
-              }
+              readOnly
               disabled={
                 notAvailable ||
                 !item.expires
@@ -1480,23 +1654,247 @@ function DocumentCard({
 }
 
 /* =========================================================
+   CADASTRO DE ADMINISTRADOR
+   ========================================================= */
+
+function CreateAdminForm({ onClose }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [keywords, setKeywords] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function submit(e) {
+    e.preventDefault();
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      if (!name.trim()) {
+        throw new Error("Informe o nome do administrador.");
+      }
+
+      if (!email.trim()) {
+        throw new Error("Informe o e-mail do administrador.");
+      }
+
+      const { data, error } = await supabase.functions.invoke(
+        "create-admin",
+        {
+          body: {
+            name: name.trim(),
+            email: email.trim(),
+            keywords: keywords.trim(),
+          },
+        }
+      );
+
+      if (error) {
+        throw error;
+      }
+
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      setMessage(
+        "Administrador criado com sucesso. Um convite foi enviado para o e-mail informado."
+      );
+
+      setName("");
+      setEmail("");
+      setKeywords("");
+    } catch (err) {
+      setError(
+        err.message ||
+          "Não foi possível cadastrar o administrador."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="auth-card"
+        style={{
+          width: "100%",
+          maxWidth: "560px",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          position: "relative",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="back-button"
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            top: "18px",
+            right: "18px",
+          }}
+        >
+          <XCircle size={17} />
+          Fechar
+        </button>
+
+        <span className="eyebrow">
+          ADMINISTRAÇÃO
+        </span>
+
+        <h1>Cadastrar administrador</h1>
+
+        <p className="muted">
+          Crie um acesso administrativo e defina quais empresas essa pessoa
+          poderá visualizar e analisar.
+        </p>
+
+        <form onSubmit={submit}>
+          <label>
+            Nome
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nome do administrador"
+              required
+            />
+          </label>
+
+          <label>
+            E-mail
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="administrador@email.com"
+              required
+            />
+          </label>
+
+          <label>
+            Categoria de palavras-chave
+            <input
+              value={keywords}
+              onChange={(e) => setKeywords(e.target.value)}
+              placeholder="Ex.: LAVAGEM, VAPOR, EXAUSTOR"
+            />
+          </label>
+
+          <div
+            className="required-document-notice"
+            style={{
+              display: "grid",
+              gap: "5px",
+            }}
+          >
+            <strong>Como funciona:</strong>
+
+            <span>
+              • Campo vazio: acesso completo, podendo visualizar e aprovar/reprovar tudo.
+            </span>
+
+            <span>
+              • VISUALIZAR: pode visualizar tudo, mas não pode aprovar/reprovar.
+            </span>
+
+            <span>
+              • Palavras-chave: poderá visualizar e analisar somente empresas cujo serviço/atividade contenha uma das palavras informadas.
+            </span>
+
+            <span>
+              Separe várias palavras por vírgula.
+            </span>
+          </div>
+
+          {error && (
+            <div className="alert error">
+              {error}
+            </div>
+          )}
+
+          {message && (
+            <div className="alert success">
+              {message}
+            </div>
+          )}
+
+          <div className="form-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onClose}
+            >
+              Fechar
+            </button>
+
+            <button
+              className="primary-button"
+              disabled={loading}
+            >
+              <UserPlus size={18} />
+              {loading
+                ? "Cadastrando..."
+                : "Cadastrar administrador"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================
    ÁREA ADMINISTRATIVA / BUDEL
    ========================================================= */
 
-function AdminDashboard({ onBack }) {
+function AdminDashboard({
+  onBack,
+  adminProfile,
+}) {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
+
+  const canReview = adminCanReview(adminProfile);
+  const canManageUsers = adminCanManageUsers(adminProfile);
+  const viewOnly = adminIsViewOnly(adminProfile);
 
   async function loadCompanies() {
     setLoading(true);
     setError("");
 
+    /*
+      O RLS do Supabase impede que CNPJs em draft
+      cheguem até este usuário.
+
+      Aqui também filtramos draft para manter a regra
+      explícita no frontend.
+    */
     const { data, error } = await supabase
       .from("companies")
       .select("*")
+      .neq("submission_status", "draft")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -1521,22 +1919,35 @@ function AdminDashboard({ onBack }) {
         await supabase
           .from("companies")
           .select("*")
+          .neq("submission_status", "draft")
           .order("created_at", { ascending: false });
 
       if (companiesError) {
         throw companiesError;
       }
 
+      const visibleCompanies = (companiesData || []).filter(
+        (company) =>
+          adminCanViewCompany(company, adminProfile)
+      );
+
+      const companyIds = visibleCompanies.map(
+        (company) => company.id
+      );
+
       const { data: documentsData, error: documentsError } =
-        await supabase
-          .from("documents")
-          .select("*");
+        companyIds.length > 0
+          ? await supabase
+              .from("documents")
+              .select("*")
+              .in("company_id", companyIds)
+          : { data: [], error: null };
 
       if (documentsError) {
         throw documentsError;
       }
 
-      const rows = (companiesData || []).map((company) => {
+      const rows = visibleCompanies.map((company) => {
         const companyDocs = (documentsData || []).filter(
           (doc) => doc.company_id === company.id
         );
@@ -1550,9 +1961,7 @@ function AdminDashboard({ onBack }) {
               ? "Aprovada"
               : company.submission_status === "rejected"
               ? "Reprovada"
-              : company.submission_status === "submitted"
-              ? "Em análise"
-              : "Rascunho",
+              : "Em análise",
           "Data do envio": company.submitted_at
             ? new Date(
                 company.submitted_at
@@ -1646,6 +2055,8 @@ function AdminDashboard({ onBack }) {
       <main className="page">
         <AdminCompanyPage
           company={selectedCompany}
+          adminProfile={adminProfile}
+          canReview={canReview}
           onBack={() => {
             setSelectedCompany(null);
             loadCompanies();
@@ -1664,11 +2075,48 @@ function AdminDashboard({ onBack }) {
           <h1>Homologação de Fornecedores</h1>
 
           <p className="muted">
-            Visualize e analise todos os fornecedores cadastrados no portal.
+            {viewOnly
+              ? "Visualização dos fornecedores enviados para homologação."
+              : "Visualize e analise os fornecedores enviados para homologação."}
           </p>
+
+          {!adminProfile.admin_can_manage_users &&
+            adminProfile.admin_keywords &&
+            !viewOnly && (
+              <p
+                className="muted"
+                style={{ marginTop: "8px" }}
+              >
+                Filtro de acesso:{" "}
+                <strong>
+                  {adminProfile.admin_keywords}
+                </strong>
+              </p>
+            )}
+
+          {viewOnly && (
+            <p
+              className="muted"
+              style={{ marginTop: "8px" }}
+            >
+              Este acesso possui somente permissão de visualização.
+            </p>
+          )}
         </div>
 
         <div className="header-actions">
+          {canManageUsers && (
+            <button
+              className="secondary-button"
+              onClick={() =>
+                setShowCreateAdmin(true)
+              }
+            >
+              <UserPlus size={18} />
+              Cadastrar administrador
+            </button>
+          )}
+
           <button
             className="secondary-button"
             onClick={exportToExcel}
@@ -1758,10 +2206,11 @@ function AdminDashboard({ onBack }) {
         <div className="empty-box">
           <Building2 size={40} />
 
-          <h2>Nenhum fornecedor cadastrado</h2>
+          <h2>Nenhum fornecedor enviado</h2>
 
           <p>
-            Quando os fornecedores enviarem seus CNPJs, eles aparecerão aqui.
+            Quando os fornecedores enviarem seus CNPJs para homologação,
+            eles aparecerão aqui.
           </p>
         </div>
       ) : (
@@ -1776,6 +2225,14 @@ function AdminDashboard({ onBack }) {
             />
           ))}
         </div>
+      )}
+
+      {showCreateAdmin && (
+        <CreateAdminForm
+          onClose={() =>
+            setShowCreateAdmin(false)
+          }
+        />
       )}
     </main>
   );
@@ -1857,6 +2314,8 @@ function AdminCompanyCard({
 function AdminCompanyPage({
   company,
   onBack,
+  adminProfile,
+  canReview,
 }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1874,6 +2333,8 @@ function AdminCompanyPage({
     useState(
       company.review_notes || ""
     );
+
+  const viewOnly = adminIsViewOnly(adminProfile);
 
   async function loadDocuments() {
     setLoading(true);
@@ -1967,7 +2428,7 @@ function AdminCompanyPage({
     reviewStatus,
     notes
   ) {
-    if (!doc) return;
+    if (!doc || !canReview) return;
 
     setSaving((current) => ({
       ...current,
@@ -2019,14 +2480,10 @@ function AdminCompanyPage({
         )
       );
 
-      /*
-        Se um documento foi reprovado,
-        a empresa fica reprovada até o fornecedor
-        corrigir e enviar novamente.
-      */
-
       if (reviewStatus === "rejected") {
-        await supabase
+        const {
+          error: companyError,
+        } = await supabase
           .from("companies")
           .update({
             submission_status:
@@ -2035,6 +2492,10 @@ function AdminCompanyPage({
               "Existem documentos reprovados. Consulte as observações.",
           })
           .eq("id", company.id);
+
+        if (companyError) {
+          throw companyError;
+        }
 
         setCompanyStatus("rejected");
       }
@@ -2060,6 +2521,8 @@ function AdminCompanyPage({
   async function reviewCompany(
     status
   ) {
+    if (!canReview) return;
+
     setError("");
     setMessage("");
 
@@ -2213,6 +2676,14 @@ function AdminCompanyPage({
         </span>
       </div>
 
+      {viewOnly && (
+        <div className="alert success">
+          <Eye size={16} />
+          {" "}
+          Este administrador possui somente permissão de visualização.
+        </div>
+      )}
+
       <div className="summary-grid">
         <div>
           <strong>
@@ -2273,7 +2744,9 @@ function AdminCompanyPage({
           </h2>
 
           <p className="muted">
-            Analise cada documento e registre a decisão da Budel.
+            {canReview
+              ? "Analise cada documento e registre a decisão da Budel."
+              : "Visualize a documentação enviada pelo fornecedor."}
           </p>
         </div>
       </div>
@@ -2305,83 +2778,88 @@ function AdminCompanyPage({
                 onReview={
                   reviewDocument
                 }
+                canReview={
+                  canReview
+                }
               />
             )
           )}
         </div>
       )}
 
-      <div className="submit-box">
-        <div style={{ flex: 1 }}>
-          <h2>
-            Decisão da homologação
-          </h2>
+      {canReview && (
+        <div className="submit-box">
+          <div style={{ flex: 1 }}>
+            <h2>
+              Decisão da homologação
+            </h2>
 
-          <p>
-            Após analisar os documentos, registre a situação final desta
-            empresa.
-          </p>
+            <p>
+              Após analisar os documentos, registre a situação final desta
+              empresa.
+            </p>
 
-          <label
+            <label
+              style={{
+                display: "grid",
+                gap: "7px",
+                marginTop: "15px",
+              }}
+            >
+              Observação geral da Budel
+
+              <textarea
+                value={
+                  companyNotes
+                }
+                onChange={(e) =>
+                  setCompanyNotes(
+                    e.target.value
+                  )
+                }
+                placeholder="Digite uma observação geral sobre a homologação..."
+                rows={4}
+                style={{
+                  width: "100%",
+                  resize: "vertical",
+                }}
+              />
+            </label>
+          </div>
+
+          <div
             style={{
-              display: "grid",
-              gap: "7px",
-              marginTop: "15px",
+              display: "flex",
+              gap: "10px",
+              flexWrap: "wrap",
             }}
           >
-            Observação geral da Budel
-
-            <textarea
-              value={
-                companyNotes
-              }
-              onChange={(e) =>
-                setCompanyNotes(
-                  e.target.value
+            <button
+              className="secondary-button"
+              onClick={() =>
+                reviewCompany(
+                  "rejected"
                 )
               }
-              placeholder="Digite uma observação geral sobre a homologação..."
-              rows={4}
-              style={{
-                width: "100%",
-                resize: "vertical",
-              }}
-            />
-          </label>
-        </div>
+            >
+              <ShieldX size={18} />
+              Reprovar homologação
+            </button>
 
-        <div
-          style={{
-            display: "flex",
-            gap: "10px",
-            flexWrap: "wrap",
-          }}
-        >
-          <button
-            className="secondary-button"
-            onClick={() =>
-              reviewCompany(
-                "rejected"
-              )
-            }
-          >
-            <ShieldX size={18} />
-            Reprovar homologação
-          </button>
-
-          <button
-            className="primary-button"
-            onClick={() =>
-              reviewCompany(
-                "approved"
-              )
-            }
-          >
-            <ShieldCheck size={18} />
-            Aprovar homologação
-          </button>
+            <button
+              className="primary-button"
+              onClick={() =>
+                reviewCompany(
+                  "approved"
+                )
+              }
+            >
+              <ShieldCheck size={18} />
+              Aprovar homologação
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -2392,6 +2870,7 @@ function AdminDocumentCard({
   saving,
   onOpen,
   onReview,
+  canReview,
 }) {
   const [notes, setNotes] =
     useState(
@@ -2567,77 +3046,90 @@ function AdminDocumentCard({
           </div>
         )}
 
-        <label
-          style={{
-            display: "grid",
-            gap: "7px",
-          }}
-        >
-          Observação da Budel
+        {canReview && (
+          <>
+            <label
+              style={{
+                display: "grid",
+                gap: "7px",
+              }}
+            >
+              Observação da Budel
 
-          <textarea
-            value={notes}
-            onChange={(e) =>
-              setNotes(
-                e.target.value
-              )
-            }
-            placeholder="Digite o motivo da reprovação ou alguma observação..."
-            rows={3}
-            style={{
-              width: "100%",
-              resize: "vertical",
-            }}
-          />
-        </label>
+              <textarea
+                value={notes}
+                onChange={(e) =>
+                  setNotes(
+                    e.target.value
+                  )
+                }
+                placeholder="Digite o motivo da reprovação ou alguma observação..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  resize: "vertical",
+                }}
+              />
+            </label>
 
-        <div className="document-actions">
-          <button
-            type="button"
-            className="secondary-button small-button"
-            onClick={() =>
-              onReview(
-                document,
-                "rejected",
-                notes
-              )
-            }
-            disabled={
-              saving ||
-              !document ||
-              files.length === 0
-            }
-          >
-            <XCircle size={16} />
-            Reprovar documento
-          </button>
+            <div className="document-actions">
+              <button
+                type="button"
+                className="secondary-button small-button"
+                onClick={() =>
+                  onReview(
+                    document,
+                    "rejected",
+                    notes
+                  )
+                }
+                disabled={
+                  saving ||
+                  !document ||
+                  files.length === 0
+                }
+              >
+                <XCircle size={16} />
+                Reprovar documento
+              </button>
 
-          <button
-            type="button"
-            className="primary-button small-button"
-            onClick={() =>
-              onReview(
-                document,
-                "approved",
-                notes
-              )
-            }
-            disabled={
-              saving ||
-              !document ||
-              files.length === 0
-            }
-          >
-            <CheckCircle2 size={16} />
-            Aprovar documento
-          </button>
-        </div>
+              <button
+                type="button"
+                className="primary-button small-button"
+                onClick={() =>
+                  onReview(
+                    document,
+                    "approved",
+                    notes
+                  )
+                }
+                disabled={
+                  saving ||
+                  !document ||
+                  files.length === 0
+                }
+              >
+                <CheckCircle2 size={16} />
+                Aprovar documento
+              </button>
+            </div>
 
-        {saving && (
-          <div className="muted">
-            Salvando análise...
-          </div>
+            {saving && (
+              <div className="muted">
+                Salvando análise...
+              </div>
+            )}
+          </>
         )}
+
+        {!canReview &&
+          document?.review_notes && (
+            <div className="alert error">
+              <strong>Observação da Budel:</strong>
+              <br />
+              {document.review_notes}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -2665,6 +3157,9 @@ export default function App() {
   const [isAdmin, setIsAdmin] =
     useState(false);
 
+  const [adminProfile, setAdminProfile] =
+    useState(null);
+
   const [
     checkingRole,
     setCheckingRole,
@@ -2673,6 +3168,7 @@ export default function App() {
   async function checkAdminRole(user) {
     if (!user) {
       setIsAdmin(false);
+      setAdminProfile(null);
       return false;
     }
 
@@ -2684,13 +3180,16 @@ export default function App() {
         error,
       } = await supabase
         .from("profiles")
-        .select("role")
+        .select(
+          "id, full_name, email, role, admin_keywords, admin_can_manage_users"
+        )
         .eq("id", user.id)
         .maybeSingle();
 
       if (error) {
         console.error(error);
         setIsAdmin(false);
+        setAdminProfile(null);
         return false;
       }
 
@@ -2699,10 +3198,17 @@ export default function App() {
 
       setIsAdmin(admin);
 
+      if (admin) {
+        setAdminProfile(data);
+      } else {
+        setAdminProfile(null);
+      }
+
       return admin;
     } catch (err) {
       console.error(err);
       setIsAdmin(false);
+      setAdminProfile(null);
       return false;
     } finally {
       setCheckingRole(false);
@@ -2782,6 +3288,7 @@ export default function App() {
             }
           } else {
             setIsAdmin(false);
+            setAdminProfile(null);
             setPage("home");
           }
         }
@@ -2819,6 +3326,7 @@ export default function App() {
 
     setSession(null);
     setIsAdmin(false);
+    setAdminProfile(null);
     setPage("home");
   }
 
@@ -2893,8 +3401,10 @@ export default function App() {
 
       {page === "admin" &&
         session &&
-        isAdmin && (
+        isAdmin &&
+        adminProfile && (
           <AdminDashboard
+            adminProfile={adminProfile}
             onBack={() =>
               setPage("home")
             }
