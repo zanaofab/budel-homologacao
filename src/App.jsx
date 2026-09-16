@@ -2956,113 +2956,130 @@ function AdminDocumentCard({
  */
 function AdminFileItem({ file }) {
   const [url, setUrl] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  async function openFile() {
-    const newTab = window.open(
-      "",
-      "_blank"
-    );
+  async function openFile(event) {
+    event.preventDefault();
+    event.stopPropagation();
 
-    if (!newTab) {
-      alert(
-        "O navegador bloqueou a nova aba. Permita pop-ups para este site e tente novamente."
-      );
-      return;
-    }
-
-    newTab.document.write(`
-      <html>
-        <head>
-          <title>Carregando documento...</title>
-          <style>
-            body {
-              margin: 0;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              font-family: Arial, sans-serif;
-              color: #555;
-            }
-          </style>
-        </head>
-        <body>
-          Carregando documento...
-        </body>
-      </html>
-    `);
+    setLoading(true);
 
     try {
-      const { data, error } =
-        await supabase.storage
-          .from("supplier-documents")
-          .createSignedUrl(
-            file.path,
-            300
-          );
+      const { data, error } = await supabase.storage
+        .from("supplier-documents")
+        .createSignedUrl(file.path, 300);
 
       if (error) {
-        newTab.close();
-        alert(error.message);
-        return;
+        throw error;
       }
 
-      const signedUrl =
-        data?.signedUrl || "";
-
-      if (!signedUrl) {
-        newTab.close();
-        alert(
+      if (!data?.signedUrl) {
+        throw new Error(
           "Não foi possível gerar o link para visualizar o documento."
         );
-        return;
       }
 
-      setUrl(signedUrl);
-
-      newTab.location.href =
-        signedUrl;
+      setUrl(data.signedUrl);
     } catch (error) {
-      newTab.close();
-
       alert(
         error?.message ||
           "Não foi possível visualizar o documento."
       );
+    } finally {
+      setLoading(false);
     }
   }
 
+  function closePreview(event) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    setUrl("");
+  }
+
   return (
-    <div className="selected-file">
-      <FileText size={16} />
+    <>
+      <div className="selected-file">
+        <FileText size={16} />
 
-      <span>{file.name}</span>
+        <span>{file.name}</span>
 
-      <button
-        type="button"
-        className="secondary-button small-button"
-        onClick={openFile}
-      >
-        <Eye size={15} />
-        Visualizar
-      </button>
+        <button
+          type="button"
+          className="secondary-button small-button"
+          onClick={openFile}
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <RefreshCw
+                size={15}
+                className="spin"
+              />
+              Abrindo...
+            </>
+          ) : (
+            <>
+              <Eye size={15} />
+              Visualizar
+            </>
+          )}
+        </button>
+      </div>
 
       {url && (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="secondary-button small-button"
-          download
+        <div
+          className="pdf-preview-overlay"
+          onClick={closePreview}
         >
-          <Download size={15} />
-          Baixar
-        </a>
+          <div
+            className="pdf-preview-modal"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <div className="pdf-preview-header">
+              <strong>{file.name}</strong>
+
+              <button
+                type="button"
+                className="icon-button"
+                onClick={closePreview}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <iframe
+              src={url}
+              title={file.name}
+              className="pdf-preview-frame"
+            />
+
+            <div className="pdf-preview-actions">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="secondary-button small-button"
+              >
+                <Download size={15} />
+                Abrir em nova aba
+              </a>
+
+              <button
+                type="button"
+                className="primary-button small-button"
+                onClick={closePreview}
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </>
   );
 }
-
 function StatusBadge({
   status,
   label,
