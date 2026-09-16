@@ -24,9 +24,9 @@ const checklistUrl =
   como "Não possuímos essa documentação".
 */
 const mandatoryDocuments = [
-  "cnpj",
+  "cartao_cnpj",
   "checklist",
-  "photos",
+  "fotos_local",
 ];
 
 function isMandatoryDocument(type) {
@@ -56,16 +56,41 @@ function daysUntil(date) {
   return Math.ceil((b - a) / 86400000);
 }
 
+/*
+  Verifica se o documento possui pelo menos um arquivo.
+
+  Mantemos file_path para compatibilidade com documentos
+  antigos que foram cadastrados antes da função de múltiplos arquivos.
+*/
+function hasDocumentFiles(doc) {
+  if (!doc) return false;
+
+  const files = Array.isArray(doc.files) ? doc.files : [];
+
+  return files.length > 0 || !!doc.file_path;
+}
+
 function documentStatus(doc) {
   if (!doc) return "missing";
-  if (doc.not_available) return "not_available";
-  if (!doc.file_path) return "missing";
+
+  if (doc.not_available) {
+    return "not_available";
+  }
+
+  if (!hasDocumentFiles(doc)) {
+    return "missing";
+  }
 
   if (doc.expiry_date) {
     const days = daysUntil(doc.expiry_date);
 
-    if (days < 0) return "expired";
-    if (days <= 30) return "expiring";
+    if (days < 0) {
+      return "expired";
+    }
+
+    if (days <= 15) {
+      return "expiring";
+    }
   }
 
   return "ok";
@@ -76,6 +101,7 @@ function statusLabel(status) {
   if (status === "expiring") return "Vencendo";
   if (status === "expired") return "Vencido";
   if (status === "not_available") return "Não possui";
+
   return "Pendente";
 }
 
@@ -85,18 +111,22 @@ function StatusBadge({ status }) {
       icon: <CheckCircle2 size={16} />,
       className: "status-ok",
     },
+
     expiring: {
       icon: <Clock3 size={16} />,
       className: "status-warning",
     },
+
     expired: {
       icon: <AlertCircle size={16} />,
       className: "status-danger",
     },
+
     not_available: {
       icon: <XCircle size={16} />,
       className: "status-muted",
     },
+
     missing: {
       icon: <AlertCircle size={16} />,
       className: "status-pending",
@@ -380,7 +410,7 @@ function CompanyForm({ onCancel, onCreated }) {
         throw new Error("Digite um CNPJ válido com 14 números.");
       }
 
-      if (!modality) {
+      if (!modality.trim()) {
         throw new Error(
           "Digite o serviço ou atividade fornecida à Budel."
         );
@@ -392,7 +422,7 @@ function CompanyForm({ onCancel, onCreated }) {
           owner_id: user.id,
           legal_name: legalName.trim(),
           cnpj: cleanCnpj,
-          modality,
+          modality: modality.trim(),
           submission_status: "draft",
         })
         .select()
@@ -502,7 +532,9 @@ function SupplierDashboard({ onLogout }) {
       .eq("owner_id", user.id)
       .order("created_at", { ascending: false });
 
-    if (!error) setCompanies(data || []);
+    if (!error) {
+      setCompanies(data || []);
+    }
 
     setLoading(false);
   }
@@ -582,6 +614,7 @@ function SupplierDashboard({ onLogout }) {
         <div>
           <span className="eyebrow">ÁREA DO FORNECEDOR</span>
           <h1>Meus CNPJs</h1>
+
           <p className="muted">
             Cadastre suas empresas e acompanhe a documentação de cada CNPJ.
           </p>
@@ -601,7 +634,9 @@ function SupplierDashboard({ onLogout }) {
       ) : companies.length === 0 ? (
         <div className="empty-box">
           <Building2 size={40} />
+
           <h2>Nenhum CNPJ cadastrado</h2>
+
           <p>Comece cadastrando a empresa que deseja homologar.</p>
 
           <button
@@ -700,7 +735,9 @@ function DocumentsPage({ company, onBack }) {
   }, [company.id]);
 
   const documentMap = useMemo(() => {
-    return Object.fromEntries(documents.map((doc) => [doc.type, doc]));
+    return Object.fromEntries(
+      documents.map((doc) => [doc.type, doc])
+    );
   }, [documents]);
 
   const summary = useMemo(() => {
@@ -712,50 +749,100 @@ function DocumentsPage({ company, onBack }) {
     documentTypes.forEach((item) => {
       const status = documentStatus(documentMap[item.key]);
 
-      if (status === "ok" || status === "expiring") ok++;
-      else if (status === "expired") expired++;
-      else if (status === "not_available") notAvailable++;
-      else pending++;
+      if (status === "ok" || status === "expiring") {
+        ok++;
+      } else if (status === "expired") {
+        expired++;
+      } else if (status === "not_available") {
+        notAvailable++;
+      } else {
+        pending++;
+      }
     });
 
-    return { ok, pending, expired, notAvailable };
+    return {
+      ok,
+      pending,
+      expired,
+      notAvailable,
+    };
   }, [documentMap]);
 
+  /*
+    Salva um ou vários arquivos para o mesmo tipo de documento.
+  */
   async function saveDocument(type, values) {
-    setSaving((current) => ({ ...current, [type]: true }));
+    setSaving((current) => ({
+      ...current,
+      [type]: true,
+    }));
+
     setError("");
     setMessage("");
 
     try {
       const existing = documentMap[type];
 
-      let filePath = existing?.file_path || null;
-      let originalName = existing?.original_name || null;
+      /*
+        Recupera os arquivos que já estavam salvos.
+      */
+      let files = Array.isArray(existing?.files)
+        ? [...existing.files]
+        : [];
 
-      if (values.file) {
-        const extension =
-          values.file.name.split(".").pop()?.toLowerCase() || "pdf";
-
-        const safeName = `${crypto.randomUUID()}.${extension}`;
-        const path = `${company.owner_id}/${company.id}/${type}/${safeName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("supplier-documents")
-          .upload(path, values.file, {
-            upsert: true,
-          });
-
-        if (uploadError) throw uploadError;
-
-        filePath = path;
-        originalName = values.file.name;
+      /*
+        Compatibilidade com documentos antigos:
+        se existe apenas file_path, transforma em um arquivo
+        dentro do novo formato.
+      */
+      if (files.length === 0 && existing?.file_path) {
+        files.push({
+          path: existing.file_path,
+          name: existing.original_name || "Documento",
+        });
       }
+
+      /*
+        Faz upload de cada novo arquivo selecionado.
+      */
+      if (values.files?.length) {
+        for (const file of values.files) {
+          const extension =
+            file.name.split(".").pop()?.toLowerCase() || "pdf";
+
+          const safeName = `${crypto.randomUUID()}.${extension}`;
+
+          const path = `${company.owner_id}/${company.id}/${type}/${safeName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("supplier-documents")
+            .upload(path, file, {
+              upsert: true,
+            });
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          files.push({
+            path,
+            name: file.name,
+          });
+        }
+      }
+
+      /*
+        O primeiro arquivo continua sendo colocado também
+        nos campos antigos para manter compatibilidade.
+      */
+      const firstFile = files[0] || null;
 
       const payload = {
         company_id: company.id,
         type,
-        file_path: filePath,
-        original_name: originalName,
+        file_path: firstFile?.path || null,
+        original_name: firstFile?.name || null,
+        files,
         issue_date: values.issueDate || null,
         expiry_date: values.expiryDate || null,
         not_available: values.notAvailable,
@@ -770,56 +857,86 @@ function DocumentsPage({ company, onBack }) {
         .select()
         .single();
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        throw dbError;
+      }
 
       setDocuments((current) => [
         ...current.filter((item) => item.type !== type),
         data,
       ]);
 
-      setMessage("Documento salvo com sucesso.");
+      setMessage("Documento(s) salvo(s) com sucesso.");
     } catch (err) {
-      setError(err.message || "Não foi possível salvar o documento.");
+      setError(
+        err.message || "Não foi possível salvar o documento."
+      );
     } finally {
-      setSaving((current) => ({ ...current, [type]: false }));
+      setSaving((current) => ({
+        ...current,
+        [type]: false,
+      }));
     }
   }
 
+  /*
+    Verifica se todos os documentos necessários foram preenchidos.
+  */
   async function submitForApproval() {
     setError("");
     setMessage("");
 
     /*
-      Verifica se existe algum documento pendente.
-      Para documentos obrigatórios, "Não possui" também é considerado pendente.
+      Documentos obrigatórios:
+      - Cartão CNPJ
+      - Checklist
+      - Fotos
+
+      Esses três precisam obrigatoriamente possuir pelo menos
+      um arquivo.
     */
     const missing = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
 
       if (isMandatoryDocument(item.key)) {
-        return !doc || !doc.file_path || doc.not_available;
+        return (
+          !hasDocumentFiles(doc) ||
+          doc?.not_available
+        );
       }
 
-      return documentStatus(doc) === "missing";
+      /*
+        Para os demais documentos:
+        - se marcou "Não possuímos", está preenchido;
+        - caso contrário, precisa de pelo menos um arquivo.
+      */
+      if (doc?.not_available) {
+        return false;
+      }
+
+      return !hasDocumentFiles(doc);
     });
 
     if (missing.length > 0) {
       setError(
-        `Ainda existem ${missing.length} documentação(ões) pendente(s). Anexe todos os documentos obrigatórios e, nos demais, anexe o documento ou marque "Não possuímos essa documentação".`
+        `Ainda existem ${missing.length} documentação(ões) pendente(s). Anexe pelo menos um arquivo em cada documento necessário ou marque "Não possuímos essa documentação" nos documentos em que essa opção estiver disponível.`
       );
+
       return;
     }
 
+    /*
+      Somente os documentos que possuem validade precisam
+      informar a data de validade.
+    */
     const withoutExpiry = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
 
-      if (!doc || doc.not_available) return false;
+      if (!doc || doc.not_available) {
+        return false;
+      }
 
-      /*
-        Fotos e checklist não precisam necessariamente de validade.
-        Os demais documentos precisam informar validade quando enviados.
-      */
-      if (item.key === "photos" || item.key === "checklist") {
+      if (!item.expires) {
         return false;
       }
 
@@ -828,8 +945,34 @@ function DocumentsPage({ company, onBack }) {
 
     if (withoutExpiry.length > 0) {
       setError(
-        "Informe a validade dos documentos que possuem validade antes de enviar."
+        "Informe a data de validade de todos os documentos que possuem validade."
       );
+
+      return;
+    }
+
+    /*
+      Documento vencido não pode ser enviado para homologação.
+    */
+    const expired = documentTypes.filter((item) => {
+      const doc = documentMap[item.key];
+
+      if (!doc || doc.not_available) {
+        return false;
+      }
+
+      if (!item.expires) {
+        return false;
+      }
+
+      return documentStatus(doc) === "expired";
+    });
+
+    if (expired.length > 0) {
+      setError(
+        `Não é possível enviar a documentação enquanto houver ${expired.length} documento(s) vencido(s). Atualize os documentos vencidos.`
+      );
+
       return;
     }
 
@@ -846,22 +989,52 @@ function DocumentsPage({ company, onBack }) {
       return;
     }
 
-    setMessage("Documentação enviada para homologação!");
+    setMessage(
+      "Documentação enviada para homologação com sucesso!"
+    );
   }
 
-  async function openFile(doc) {
-    if (!doc?.file_path) return;
+  /*
+    Abre todos os arquivos cadastrados naquele tipo de documento.
+  */
+  async function openFiles(doc) {
+    if (!doc) return;
 
-    const { data, error } = await supabase.storage
-      .from("supplier-documents")
-      .createSignedUrl(doc.file_path, 300);
+    let files = Array.isArray(doc.files)
+      ? doc.files
+      : [];
 
-    if (error) {
-      setError(error.message);
+    /*
+      Compatibilidade com documentos antigos.
+    */
+    if (files.length === 0 && doc.file_path) {
+      files = [
+        {
+          path: doc.file_path,
+          name: doc.original_name || "Documento",
+        },
+      ];
+    }
+
+    if (files.length === 0) {
+      setError("Nenhum arquivo encontrado para este documento.");
       return;
     }
 
-    window.open(data.signedUrl, "_blank");
+    for (const file of files) {
+      if (!file?.path) continue;
+
+      const { data, error } = await supabase.storage
+        .from("supplier-documents")
+        .createSignedUrl(file.path, 300);
+
+      if (error) {
+        setError(error.message);
+        continue;
+      }
+
+      window.open(data.signedUrl, "_blank");
+    }
   }
 
   return (
@@ -874,9 +1047,14 @@ function DocumentsPage({ company, onBack }) {
       <div className="company-header">
         <div>
           <span className="eyebrow">DOCUMENTAÇÃO</span>
+
           <h1>{company.legal_name}</h1>
+
           <p>CNPJ: {formatCnpj(company.cnpj)}</p>
-          <span className="company-modality">{company.modality}</span>
+
+          <span className="company-modality">
+            {company.modality}
+          </span>
         </div>
       </div>
 
@@ -902,12 +1080,22 @@ function DocumentsPage({ company, onBack }) {
         </div>
       </div>
 
-      {message && <div className="alert success">{message}</div>}
-      {error && <div className="alert error">{error}</div>}
+      {message && (
+        <div className="alert success">
+          {message}
+        </div>
+      )}
+
+      {error && (
+        <div className="alert error">
+          {error}
+        </div>
+      )}
 
       <div className="documents-header">
         <div>
           <h2>Documentos obrigatórios</h2>
+
           <p className="muted">
             Anexe os documentos e informe suas respectivas validades.
           </p>
@@ -923,7 +1111,9 @@ function DocumentsPage({ company, onBack }) {
       </div>
 
       {loading ? (
-        <div className="loading-box">Carregando documentos...</div>
+        <div className="loading-box">
+          Carregando documentos...
+        </div>
       ) : (
         <div className="documents-list">
           {documentTypes.map((item) => (
@@ -933,7 +1123,7 @@ function DocumentsPage({ company, onBack }) {
               document={documentMap[item.key]}
               saving={saving[item.key]}
               onSave={saveDocument}
-              onOpen={openFile}
+              onOpen={openFiles}
             />
           ))}
         </div>
@@ -942,13 +1132,17 @@ function DocumentsPage({ company, onBack }) {
       <div className="submit-box">
         <div>
           <h2>Finalizar envio</h2>
+
           <p>
             Depois de preencher a documentação, envie o cadastro para análise
             da Budel.
           </p>
         </div>
 
-        <button className="primary-button" onClick={submitForApproval}>
+        <button
+          className="primary-button"
+          onClick={submitForApproval}
+        >
           Enviar para homologação
         </button>
       </div>
@@ -956,61 +1150,108 @@ function DocumentsPage({ company, onBack }) {
   );
 }
 
-function DocumentCard({ item, document, saving, onSave, onOpen }) {
-  const [file, setFile] = useState(null);
+function DocumentCard({
+  item,
+  document,
+  saving,
+  onSave,
+  onOpen,
+}) {
+  const [files, setFiles] = useState([]);
+
   const [issueDate, setIssueDate] = useState(
     document?.issue_date || ""
   );
+
   const [expiryDate, setExpiryDate] = useState(
     document?.expiry_date || ""
   );
+
   const [notAvailable, setNotAvailable] = useState(
     document?.not_available || false
   );
 
   const status = documentStatus(document);
+
   const mandatory = isMandatoryDocument(item.key);
+
+  /*
+    Quantidade de arquivos já cadastrados.
+  */
+  const existingFilesCount = Array.isArray(document?.files)
+    ? document.files.length
+    : document?.file_path
+    ? 1
+    : 0;
 
   useEffect(() => {
     setIssueDate(document?.issue_date || "");
     setExpiryDate(document?.expiry_date || "");
     setNotAvailable(document?.not_available || false);
+    setFiles([]);
   }, [document]);
 
   function save() {
+    const hasExistingFile =
+      existingFilesCount > 0;
+
+    const hasNewFile =
+      files.length > 0;
+
+    /*
+      CNPJ, checklist e fotos:
+      obrigatoriamente precisam de pelo menos um arquivo.
+    */
     if (mandatory) {
-      if (!file && !document?.file_path) {
-        alert("Este documento é obrigatório. Anexe o arquivo para continuar.");
+      if (!hasExistingFile && !hasNewFile) {
+        alert(
+          "Este documento é obrigatório. Selecione pelo menos um arquivo."
+        );
+
         return;
       }
     } else {
-      if (!notAvailable && !file && !document?.file_path) {
+      /*
+        Demais documentos:
+        precisam de arquivo OU podem ser marcados como
+        "Não possuímos essa documentação".
+      */
+      if (
+        !notAvailable &&
+        !hasExistingFile &&
+        !hasNewFile
+      ) {
         alert(
-          "Anexe um arquivo ou marque 'Não possuímos essa documentação'."
+          "Selecione pelo menos um arquivo ou marque 'Não possuímos essa documentação'."
         );
+
         return;
       }
     }
 
     /*
-      Checklist e fotos são obrigatórios, mas não possuem
-      necessariamente uma data de validade.
+      Somente documentos que possuem validade precisam
+      obrigatoriamente informar a data.
     */
-    if (!notAvailable && !mandatory && !expiryDate) {
-      alert("Informe a validade do documento.");
-      return;
-    }
+    if (
+      !notAvailable &&
+      item.expires &&
+      !expiryDate
+    ) {
+      alert(
+        "Informe a validade do documento."
+      );
 
-    if (!notAvailable && mandatory && item.key !== "photos" && item.key !== "checklist" && !expiryDate) {
-      alert("Informe a validade do documento.");
       return;
     }
 
     onSave(item.key, {
-      file,
+      files,
       issueDate,
       expiryDate,
-      notAvailable: mandatory ? false : notAvailable,
+      notAvailable: mandatory
+        ? false
+        : notAvailable,
     });
   }
 
@@ -1025,10 +1266,18 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
           <div>
             <h3>
               {item.label}
-              {mandatory && <span className="required-mark"> *</span>}
+
+              {mandatory && (
+                <span className="required-mark">
+                  {" "}
+                  *
+                </span>
+              )}
             </h3>
 
-            {item.description && <p>{item.description}</p>}
+            {item.description && (
+              <p>{item.description}</p>
+            )}
           </div>
         </div>
 
@@ -1040,43 +1289,76 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
           <Upload size={24} />
 
           <strong>
-            {file
-              ? file.name
-              : document?.original_name
-              ? document.original_name
-              : "Clique para selecionar o documento"}
+            {files.length > 0
+              ? `${files.length} arquivo(s) selecionado(s)`
+              : existingFilesCount > 0
+              ? `${existingFilesCount} arquivo(s) enviado(s)`
+              : "Clique para selecionar os documentos"}
           </strong>
 
-          <span>PDF, JPG, PNG ou DOCX</span>
+          <span>
+            Você pode selecionar vários arquivos
+          </span>
 
           <input
             type="file"
+            multiple
             accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-            onChange={(e) =>
-              setFile(e.target.files?.[0] || null)
-            }
+            onChange={(e) => {
+              setFiles(
+                Array.from(
+                  e.target.files || []
+                )
+              );
+            }}
             disabled={notAvailable}
           />
         </label>
 
+        {files.length > 0 && (
+          <div className="selected-files">
+            {files.map((file, index) => (
+              <div
+                className="selected-file"
+                key={`${file.name}-${file.size}-${index}`}
+              >
+                <FileText size={16} />
+
+                <span>
+                  {file.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="date-fields">
           <label>
             Data de emissão
+
             <input
               type="date"
               value={issueDate}
-              onChange={(e) => setIssueDate(e.target.value)}
+              onChange={(e) =>
+                setIssueDate(e.target.value)
+              }
               disabled={notAvailable}
             />
           </label>
 
           <label>
             Data de validade
+
             <input
               type="date"
               value={expiryDate}
-              onChange={(e) => setExpiryDate(e.target.value)}
-              disabled={notAvailable}
+              onChange={(e) =>
+                setExpiryDate(e.target.value)
+              }
+              disabled={
+                notAvailable ||
+                !item.expires
+              }
             />
           </label>
         </div>
@@ -1087,36 +1369,49 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
               type="checkbox"
               checked={notAvailable}
               onChange={(e) => {
-                setNotAvailable(e.target.checked);
+                const checked =
+                  e.target.checked;
 
-                if (e.target.checked) {
-                  setFile(null);
+                setNotAvailable(checked);
+
+                if (checked) {
+                  setFiles([]);
                   setExpiryDate("");
+                  setIssueDate("");
                 }
               }}
             />
 
-            <span>Não possuímos essa documentação</span>
+            <span>
+              Não possuímos essa documentação
+            </span>
           </label>
         )}
 
         {mandatory && (
           <div className="required-document-notice">
             <AlertCircle size={16} />
-            <span>Documento obrigatório para a homologação.</span>
+
+            <span>
+              Documento obrigatório para a homologação.
+            </span>
           </div>
         )}
 
         <div className="document-actions">
-          {document?.file_path && !notAvailable && (
-            <button
-              type="button"
-              className="secondary-button small-button"
-              onClick={() => onOpen(document)}
-            >
-              Ver documento
-            </button>
-          )}
+          {existingFilesCount > 0 &&
+            !notAvailable && (
+              <button
+                type="button"
+                className="secondary-button small-button"
+                onClick={() =>
+                  onOpen(document)
+                }
+              >
+                <FileText size={16} />
+                Ver documento
+              </button>
+            )}
 
           <button
             type="button"
@@ -1124,7 +1419,9 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
             onClick={save}
             disabled={saving}
           >
-            {saving ? "Salvando..." : "Salvar documento"}
+            {saving
+              ? "Salvando..."
+              : "Salvar documento"}
           </button>
         </div>
       </div>
@@ -1136,45 +1433,62 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [page, setPage] = useState("home");
   const [authMode, setAuthMode] = useState("login");
-  const [checkingSession, setCheckingSession] = useState(true);
+  const [checkingSession, setCheckingSession] =
+    useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setCheckingSession(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        setSession(data.session);
+        setCheckingSession(false);
+      });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
+    } = supabase.auth.onAuthStateChange(
+      (_event, newSession) => {
+        setSession(newSession);
 
-      if (newSession) {
-        setPage("dashboard");
+        if (newSession) {
+          setPage("dashboard");
+        }
       }
-    });
+    );
 
-    return () => subscription.unsubscribe();
+    return () =>
+      subscription.unsubscribe();
   }, []);
 
   function downloadChecklist() {
-    const link = document.createElement("a");
+    const link =
+      document.createElement("a");
+
     link.href = checklistUrl;
+
     link.download =
       "F103-04 - CheckList de Inspeção de Fornecedores.docx";
+
     document.body.appendChild(link);
+
     link.click();
+
     link.remove();
   }
 
   async function logout() {
     await supabase.auth.signOut();
+
     setSession(null);
     setPage("home");
   }
 
   if (checkingSession) {
-    return <div className="app-loading">Carregando portal...</div>;
+    return (
+      <div className="app-loading">
+        Carregando portal...
+      </div>
+    );
   }
 
   return (
@@ -1183,7 +1497,11 @@ export default function App() {
         session={session}
         onLogout={logout}
         onHome={() =>
-          setPage(session ? "dashboard" : "home")
+          setPage(
+            session
+              ? "dashboard"
+              : "home"
+          )
         }
         onDownload={downloadChecklist}
       />
@@ -1206,18 +1524,27 @@ export default function App() {
         <AuthPage
           mode={authMode}
           setMode={setAuthMode}
-          onBack={() => setPage("home")}
+          onBack={() =>
+            setPage("home")
+          }
         />
       )}
 
       {page === "dashboard" && session && (
-        <SupplierDashboard onLogout={logout} />
+        <SupplierDashboard
+          onLogout={logout}
+        />
       )}
 
       <footer className="site-footer">
         <div>
-          <strong>Budel Transportes Ltda</strong>
-          <span>Portal de Homologação de Fornecedores</span>
+          <strong>
+            Budel Transportes Ltda
+          </strong>
+
+          <span>
+            Portal de Homologação de Fornecedores
+          </span>
         </div>
       </footer>
     </div>
