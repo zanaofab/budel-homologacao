@@ -528,6 +528,266 @@ button:disabled {
   font-weight: 600;
   cursor: pointer;
 }
+/* =========================================================
+   MELHORIAS VISUAIS - DOCUMENTOS
+   ========================================================= */
+
+.documents-list {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.document-card {
+  background: #ffffff;
+  border: 1px solid #e8e8e8;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+}
+
+.document-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+  background: #fafafa;
+  border-bottom: 1px solid #eeeeee;
+}
+
+.document-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.document-icon {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #f3f3f3;
+  color: #555555;
+}
+
+.document-title h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.3;
+  color: #222222;
+}
+
+.document-title p {
+  margin: 5px 0 0;
+  color: #777777;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.required-mark {
+  color: #c62828;
+  font-weight: 700;
+}
+
+.document-body {
+  padding: 20px 22px 22px;
+  display: grid;
+  gap: 18px;
+}
+
+.upload-area {
+  position: relative;
+  min-height: 100px;
+  border: 1.5px dashed #d5d5d5;
+  border-radius: 12px;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 18px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.upload-area:hover {
+  border-color: #bdbdbd;
+  background: #f7f7f7;
+}
+
+.upload-area svg {
+  color: #777777;
+  margin-bottom: 7px;
+}
+
+.upload-area strong {
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333333;
+  font-size: 14px;
+}
+
+.upload-area span {
+  margin-top: 4px;
+  color: #999999;
+  font-size: 12px;
+}
+
+.upload-area input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.date-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.date-fields label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #444444;
+}
+
+.date-fields input {
+  width: 100%;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  font-size: 13px;
+  color: #555555;
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #666666;
+}
+
+.required-document-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #f6f6f6;
+  color: #666666;
+  font-size: 12px;
+}
+
+.document-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+/* =========================================================
+   BOTÕES CINZA PADRONIZADOS
+   ========================================================= */
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #dddddd;
+  border-radius: 9px;
+  background: #f7f7f7;
+  color: #555555;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.secondary-button:hover {
+  background: #eeeeee;
+  border-color: #d2d2d2;
+  color: #333333;
+}
+
+.small-button {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #dddddd;
+  border-radius: 9px;
+  background: #f7f7f7;
+  color: #555555;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.back-button:hover {
+  background: #eeeeee;
+  color: #333333;
+}
+
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dddddd;
+  border-radius: 9px;
+  background: #f7f7f7;
+  color: #555555;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.header-link:hover {
+  background: #eeeeee;
+  color: #333333;
+}
+
+/* Botão excluir seguindo o mesmo padrão dos cinzas,
+   mas mantendo a identificação de ação de exclusão. */
+
+.delete-company-button {
+  transition: 0.2s ease;
+}
+
+.delete-company-button:hover {
+  background: #fff1f0;
+}
 
 .delete-company-button:hover {
   background: #fff5f4;
