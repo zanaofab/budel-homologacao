@@ -367,7 +367,9 @@ function CompanyForm({ onCancel, onCreated }) {
       }
 
       if (!modality) {
-        throw new Error("Selecione a modalidade da empresa.");
+        throw new Error(
+          "Digite o serviço ou atividade fornecida à Budel."
+        );
       }
 
       const { data, error } = await supabase
@@ -431,20 +433,24 @@ function CompanyForm({ onCancel, onCreated }) {
           />
         </label>
 
-<label>
-  Serviço/atividade fornecida à Budel
-  <input
-    value={modality}
-    onChange={(e) => setModality(e.target.value)}
-    placeholder="Digite o serviço ou atividade da empresa"
-    required
-  />
-</label>
+        <label>
+          Serviço/atividade fornecida à Budel
+          <input
+            value={modality}
+            onChange={(e) => setModality(e.target.value)}
+            placeholder="Digite o serviço ou atividade da empresa"
+            required
+          />
+        </label>
 
         {error && <div className="alert error full-width">{error}</div>}
 
         <div className="form-actions full-width">
-          <button type="button" className="secondary-button" onClick={onCancel}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onCancel}
+          >
             Cancelar
           </button>
 
@@ -490,6 +496,35 @@ function SupplierDashboard({ onLogout }) {
   useEffect(() => {
     loadCompanies();
   }, []);
+
+  async function deleteCompany(company) {
+    const confirmed = window.confirm(
+      `Tem certeza que deseja excluir o CNPJ ${formatCnpj(
+        company.cnpj
+      )}?\n\nA empresa e toda a documentação cadastrada para ela serão excluídas.`
+    );
+
+    if (!confirmed) return;
+
+    const { error } = await supabase
+      .from("companies")
+      .delete()
+      .eq("id", company.id);
+
+    if (error) {
+      alert(`Não foi possível excluir o CNPJ:\n${error.message}`);
+      return;
+    }
+
+    setCompanies((current) =>
+      current.filter((item) => item.id !== company.id)
+    );
+
+    if (selectedCompany?.id === company.id) {
+      setSelectedCompany(null);
+      setScreen("companies");
+    }
+  }
 
   function openCompany(company) {
     setSelectedCompany(company);
@@ -554,6 +589,7 @@ function SupplierDashboard({ onLogout }) {
           <Building2 size={40} />
           <h2>Nenhum CNPJ cadastrado</h2>
           <p>Comece cadastrando a empresa que deseja homologar.</p>
+
           <button
             className="primary-button"
             onClick={() => setShowCompanyForm(true)}
@@ -569,6 +605,7 @@ function SupplierDashboard({ onLogout }) {
               key={company.id}
               company={company}
               onClick={() => openCompany(company)}
+              onDelete={deleteCompany}
             />
           ))}
         </div>
@@ -581,18 +618,16 @@ function CompanyCard({ company, onClick, onDelete }) {
   async function handleDelete(e) {
     e.stopPropagation();
 
-    const confirmed = window.confirm(
-      `Tem certeza que deseja excluir o CNPJ ${formatCnpj(company.cnpj)}?\n\nA empresa e toda a documentação cadastrada para ela serão excluídas.`
-    );
-
-    if (!confirmed) return;
-
     await onDelete(company);
   }
 
   return (
     <div className="company-card">
-      <button className="company-card-main" onClick={onClick}>
+      <button
+        type="button"
+        className="company-card-main"
+        onClick={onClick}
+      >
         <div className="company-icon">
           <Building2 size={25} />
         </div>
@@ -754,7 +789,9 @@ function DocumentsPage({ company, onBack }) {
 
     const withoutExpiry = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
+
       if (!doc || doc.not_available) return false;
+
       return !doc.expiry_date;
     });
 
@@ -890,8 +927,12 @@ function DocumentsPage({ company, onBack }) {
 
 function DocumentCard({ item, document, saving, onSave, onOpen }) {
   const [file, setFile] = useState(null);
-  const [issueDate, setIssueDate] = useState(document?.issue_date || "");
-  const [expiryDate, setExpiryDate] = useState(document?.expiry_date || "");
+  const [issueDate, setIssueDate] = useState(
+    document?.issue_date || ""
+  );
+  const [expiryDate, setExpiryDate] = useState(
+    document?.expiry_date || ""
+  );
   const [notAvailable, setNotAvailable] = useState(
     document?.not_available || false
   );
@@ -960,7 +1001,9 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
           <input
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            onChange={(e) =>
+              setFile(e.target.files?.[0] || null)
+            }
             disabled={notAvailable}
           />
         </label>
@@ -1057,7 +1100,8 @@ export default function App() {
   function downloadChecklist() {
     const link = document.createElement("a");
     link.href = checklistUrl;
-    link.download = "F103-04 - CheckList de Inspeção de Fornecedores.docx";
+    link.download =
+      "F103-04 - CheckList de Inspeção de Fornecedores.docx";
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -1078,7 +1122,9 @@ export default function App() {
       <Header
         session={session}
         onLogout={logout}
-        onHome={() => setPage(session ? "dashboard" : "home")}
+        onHome={() =>
+          setPage(session ? "dashboard" : "home")
+        }
         onDownload={downloadChecklist}
       />
 
