@@ -1,132 +1,187 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Upload,
-  FileText,
-  CheckCircle2,
   AlertCircle,
-  Clock3,
-  LogOut,
-  Plus,
   ArrowLeft,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardCheck,
   Download,
-  Building2,
-  CalendarDays,
-  XCircle,
-  ShieldCheck,
-  ShieldX,
   Eye,
-  FileSpreadsheet,
+  FileCheck2,
+  FileDown,
+  FileText,
+  FolderOpen,
+  Image as ImageIcon,
+  Info,
+  KeyRound,
+  LogIn,
+  LogOut,
+  Mail,
+  Plus,
+  RefreshCw,
+  Save,
+  Send,
+  ShieldCheck,
+  Trash2,
+  Upload,
   UserPlus,
+  X,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { supabase } from "./lib/supabase";
-import { documentTypes } from "./data/checklist";
+import { checklistItems } from "./data/checklist";
 
-const checklistUrl =
-  "/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx";
-
-const mandatoryDocuments = [
-  "cartao_cnpj",
-  "checklist",
-  "fotos_local",
+const DOCUMENTS = [
+  {
+    type: "cartao_cnpj",
+    label: "Cartão CNPJ",
+    description: "Comprovante de inscrição e situação cadastral.",
+    required: true,
+    expires: true,
+  },
+  {
+    type: "alvara",
+    label: "Alvará de Localização e Funcionamento",
+    description: "Alvará vigente do estabelecimento.",
+    required: false,
+    expires: true,
+  },
+  {
+    type: "bombeiro",
+    label: "Corpo de Bombeiros",
+    description: "Certificado ou documento emitido pelo Corpo de Bombeiros.",
+    required: false,
+    expires: true,
+  },
+  {
+    type: "licenca_sanitaria",
+    label: "Licença Sanitária",
+    description: "Licença sanitária vigente, quando aplicável.",
+    required: false,
+    expires: true,
+  },
+  {
+    type: "licenca_operacao",
+    label: "Licença de Operação",
+    description: "Licença ambiental ou de operação, quando aplicável.",
+    required: false,
+    expires: true,
+  },
+  {
+    type: "ibama",
+    label: "Certificado de Regularidade (IBAMA)",
+    description: "Certificado de regularidade ambiental.",
+    required: false,
+    expires: true,
+  },
+  {
+    type: "autorizacao_ambiental",
+    label:
+      "Autorização Ambiental para Transporte Interestadual de Produtos Perigosos",
+    description: "Autorização ambiental, quando aplicável.",
+    required: false,
+    expires: true,
+  },
+  {
+    type: "checklist",
+    label: "Checklist F103-04 preenchido",
+    description: "Checklist de inspeção de fornecedores preenchido.",
+    required: true,
+    expires: false,
+  },
+  {
+    type: "fotos_local",
+    label: "Fotos do local",
+    description: "Fotos do estabelecimento e/ou estrutura fornecida.",
+    required: true,
+    expires: false,
+    multiple: true,
+  },
+  {
+    type: "outros",
+    label: "Outros documentos",
+    description: "Documentos complementares que julgar necessários.",
+    required: false,
+    expires: true,
+    multiple: true,
+  },
 ];
 
-function isMandatoryDocument(type) {
-  return mandatoryDocuments.includes(type);
+const STATUS_LABELS = {
+  pending: "Aguardando análise",
+  approved: "Aprovado",
+  rejected: "Rejeitado",
+};
+
+const COMPANY_STATUS_LABELS = {
+  draft: "Rascunho",
+  submitted: "Enviado para homologação",
+  approved: "Homologado",
+  rejected: "Correções necessárias",
+};
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
-function formatCnpj(value = "") {
-  const numbers = value.replace(/\D/g, "").slice(0, 14);
-
-  return numbers
-    .replace(/^(\d{2})(\d)/, "$1.$2")
-    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1/$2")
-    .replace(/(\d{4})(\d)/, "$1-$2");
+function keywordList(value) {
+  return String(value || "")
+    .split(/[,;|\n]+/)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
+function adminIsViewOnly(profile) {
+  const keywords = keywordList(profile?.admin_keywords);
+
+  return keywords.includes("visualizar");
 }
 
-function daysUntil(date) {
-  if (!date) return null;
+function adminCanReview(profile) {
+  if (!profile || profile.role !== "admin") return false;
 
-  const a = new Date(`${today()}T00:00:00`);
-  const b = new Date(`${date}T00:00:00`);
+  if (profile.admin_can_manage_users) return true;
 
-  return Math.ceil((b - a) / 86400000);
+  if (adminIsViewOnly(profile)) return false;
+
+  return true;
 }
 
-function hasDocumentFiles(doc) {
-  if (!doc) return false;
-
-  const files = Array.isArray(doc.files) ? doc.files : [];
-
-  return files.length > 0 || !!doc.file_path;
+function adminCanManageUsers(profile) {
+  return Boolean(
+    profile?.role === "admin" && profile?.admin_can_manage_users === true
+  );
 }
 
-function documentStatus(doc) {
-  if (!doc) return "missing";
+function adminCanViewCompany(profile, modality) {
+  if (!profile || profile.role !== "admin") return false;
 
-  if (doc.not_available) {
-    return "not_available";
-  }
+  if (profile.admin_can_manage_users) return true;
 
-  if (!hasDocumentFiles(doc)) {
-    return "missing";
-  }
+  const keywords = keywordList(profile.admin_keywords);
 
-  if (doc.expiry_date) {
-    const days = daysUntil(doc.expiry_date);
+  if (!keywords.length) return true;
 
-    if (days < 0) return "expired";
-    if (days <= 15) return "expiring";
-  }
+  if (keywords.includes("visualizar")) return true;
 
-  return "ok";
+  const normalizedModality = normalizeText(modality);
+
+  return keywords.some((keyword) =>
+    normalizedModality.includes(keyword)
+  );
 }
 
-function statusLabel(status) {
-  if (status === "ok") return "OK";
-  if (status === "expiring") return "Vencendo";
-  if (status === "expired") return "Vencido";
-  if (status === "not_available") return "Não possui";
-
-  return "Pendente";
-}
-
-function reviewLabel(status) {
-  if (status === "approved") return "Aprovado";
-  if (status === "rejected") return "Reprovado";
-
-  return "Em análise";
-}
-
-function companyStatusLabel(status) {
-  if (status === "approved") return "Homologação aprovada";
-  if (status === "rejected") return "Homologação reprovada";
-  if (status === "submitted") return "Em análise";
-
-  return "Rascunho";
-}
-
-/*
-  Regra da Budel:
-  documento emitido em 16/09/2026
-  vale até 15/09/2027.
-
-  Ou seja:
-  data de validade = data de emissão + 1 ano - 1 dia.
-*/
 function calculateExpiryDate(issueDate) {
   if (!issueDate) return "";
 
-  const date = new Date(`${issueDate}T00:00:00`);
+  const date = new Date(`${issueDate}T12:00:00`);
 
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
+  if (Number.isNaN(date.getTime())) return "";
 
   date.setFullYear(date.getFullYear() + 1);
   date.setDate(date.getDate() - 1);
@@ -134,167 +189,325 @@ function calculateExpiryDate(issueDate) {
   return date.toISOString().slice(0, 10);
 }
 
-function normalizeText(value = "") {
-  return String(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
+function daysUntil(dateString) {
+  if (!dateString) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const target = new Date(`${dateString}T00:00:00`);
+
+  if (Number.isNaN(target.getTime())) return null;
+
+  return Math.ceil((target - today) / 86400000);
 }
 
-function keywordList(value = "") {
-  return normalizeText(value)
-    .split(/[,;|\n]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
+function expiryStatus(dateString) {
+  const days = daysUntil(dateString);
 
-function adminIsViewOnly(profile) {
-  return keywordList(profile?.admin_keywords).includes(
-    "visualizar"
-  );
-}
-
-function adminCanReview(profile) {
-  if (!profile || profile.role !== "admin") {
-    return false;
+  if (days === null) {
+    return {
+      className: "",
+      label: "Sem validade informada",
+    };
   }
 
-  if (profile.admin_can_manage_users === true) {
-    return true;
-  }
-
-  return !adminIsViewOnly(profile);
-}
-
-function adminCanManageUsers(profile) {
-  return (
-    profile?.role === "admin" &&
-    profile?.admin_can_manage_users === true
-  );
-}
-
-function adminCanViewCompany(company, profile) {
-  if (!profile || profile.role !== "admin") {
-    return false;
-  }
-
-  if (company?.submission_status === "draft") {
-    return false;
-  }
-
-  if (profile.admin_can_manage_users === true) {
-    return true;
-  }
-
-  const keywords = keywordList(profile.admin_keywords);
-
-  if (keywords.length === 0) {
-    return true;
-  }
-
-  if (keywords.includes("visualizar")) {
-    return true;
-  }
-
-  const companyText = normalizeText(company?.modality || "");
-
-  return keywords.some((keyword) =>
-    companyText.includes(keyword)
-  );
-}
-
-function ReviewBadge({ status }) {
-  const config = {
-    approved: {
-      icon: <CheckCircle2 size={15} />,
-      className: "status-ok",
-    },
-    rejected: {
-      icon: <XCircle size={15} />,
+  if (days < 0) {
+    return {
       className: "status-danger",
-    },
-    pending: {
-      icon: <Clock3 size={15} />,
+      label: "Vencido",
+    };
+  }
+
+  if (days <= 15) {
+    return {
       className: "status-warning",
-    },
+      label: days === 0 ? "Vence hoje" : `Vence em ${days} dia(s)`,
+    };
+  }
+
+  return {
+    className: "status-ok",
+    label: "Válido",
   };
-
-  const item = config[status] || config.pending;
-
-  return (
-    <span className={`status-badge ${item.className}`}>
-      {item.icon}
-      {reviewLabel(status)}
-    </span>
-  );
 }
 
-function StatusBadge({ status }) {
-  const config = {
-    ok: {
-      icon: <CheckCircle2 size={16} />,
-      className: "status-ok",
-    },
-    expiring: {
-      icon: <Clock3 size={16} />,
-      className: "status-warning",
-    },
-    expired: {
-      icon: <AlertCircle size={16} />,
-      className: "status-danger",
-    },
-    not_available: {
-      icon: <XCircle size={16} />,
-      className: "status-muted",
-    },
-    missing: {
-      icon: <AlertCircle size={16} />,
-      className: "status-pending",
-    },
-  };
+function formatDate(dateString) {
+  if (!dateString) return "—";
 
-  const item = config[status] || config.missing;
+  const date = new Date(`${dateString}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return date.toLocaleDateString("pt-BR");
+}
+
+function formatCnpj(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 14);
+
+  return digits
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2")
+    .replace(/(\d{4})(\d)/, "$1-$2");
+}
+
+function getDocumentDefinition(type) {
+  return DOCUMENTS.find((item) => item.type === type);
+}
+
+function getDocumentFiles(document) {
+  if (!document) return [];
+
+  if (Array.isArray(document.files) && document.files.length) {
+    return document.files;
+  }
+
+  if (document.file_path) {
+    return [
+      {
+        path: document.file_path,
+        name: document.original_name || "Documento",
+      },
+    ];
+  }
+
+  return [];
+}
+
+function getCompanyStatusLabel(status) {
+  return COMPANY_STATUS_LABELS[status] || status || "—";
+}
+
+function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [page, setPage] = useState("home");
+  const [selectedCompany, setSelectedCompany] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSession() {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      setSession(currentSession);
+
+      if (currentSession?.user) {
+        await loadProfile(currentSession.user.id);
+      }
+
+      setLoading(false);
+    }
+
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      setSession(newSession);
+
+      if (newSession?.user) {
+        await loadProfile(newSession.user.id);
+      } else {
+        setProfile(null);
+        setPage("home");
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function loadProfile(userId) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(
+        "id, full_name, email, role, admin_keywords, admin_can_manage_users"
+      )
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    setProfile(data);
+
+    if (data?.role === "admin") {
+      setPage("admin");
+    }
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    setSelectedCompany(null);
+    setPage("home");
+  }
+
+  if (loading) {
+    return (
+      <div className="app-loading">
+        <RefreshCw size={28} className="spin" />
+        <span>Carregando...</span>
+      </div>
+    );
+  }
 
   return (
-    <span className={`status-badge ${item.className}`}>
-      {item.icon}
-      {statusLabel(status)}
-    </span>
+    <div className="app">
+      <Header
+        session={session}
+        profile={profile}
+        onHome={() => setPage("home")}
+        onLogin={() => setPage("login")}
+        onSignOut={handleSignOut}
+        onAdmin={() => setPage("admin")}
+        onSupplier={() => setPage("supplier")}
+      />
+
+      {page === "home" && (
+        <HomePage
+          session={session}
+          profile={profile}
+          onStart={() => {
+            if (session) {
+              setPage(profile?.role === "admin" ? "admin" : "supplier");
+            } else {
+              setPage("login");
+            }
+          }}
+        />
+      )}
+
+      {page === "login" && (
+        <LoginPage
+          onSuccess={async () => {
+            const {
+              data: { session: currentSession },
+            } = await supabase.auth.getSession();
+
+            setSession(currentSession);
+
+            if (currentSession?.user) {
+              await loadProfile(currentSession.user.id);
+            }
+          }}
+          onSignup={() => setPage("signup")}
+          onBack={() => setPage("home")}
+        />
+      )}
+
+      {page === "signup" && (
+        <SignupPage
+          onBack={() => setPage("login")}
+          onSuccess={() => setPage("login")}
+        />
+      )}
+
+      {page === "supplier" && session && profile?.role !== "admin" && (
+        <SupplierDashboard
+          session={session}
+          profile={profile}
+          onOpenCompany={(company) => {
+            setSelectedCompany(company);
+            setPage("company");
+          }}
+        />
+      )}
+
+      {page === "company" && selectedCompany && session && (
+        <SupplierCompanyPage
+          session={session}
+          company={selectedCompany}
+          onBack={() => {
+            setSelectedCompany(null);
+            setPage("supplier");
+          }}
+        />
+      )}
+
+      {page === "admin" && session && profile?.role === "admin" && (
+        <AdminDashboard
+          session={session}
+          adminProfile={profile}
+          onOpenCompany={(company) => {
+            setSelectedCompany(company);
+            setPage("admin-company");
+          }}
+        />
+      )}
+
+      {page === "admin-company" &&
+        selectedCompany &&
+        session &&
+        profile?.role === "admin" && (
+          <AdminCompanyPage
+            session={session}
+            company={selectedCompany}
+            adminProfile={profile}
+            onBack={() => {
+              setSelectedCompany(null);
+              setPage("admin");
+            }}
+          />
+        )}
+    </div>
   );
 }
 
 function Header({
   session,
-  onLogout,
+  profile,
   onHome,
-  onDownload,
-  isAdmin,
+  onLogin,
+  onSignOut,
   onAdmin,
+  onSupplier,
 }) {
   return (
     <header className="site-header">
       <div className="header-inner">
-        <button className="brand" onClick={onHome}>
-          <img src="/budel-logo.png" alt="Budel Transportes" />
+        <button className="brand-button" onClick={onHome}>
+          <img
+            src="/budel-logo.png"
+            alt="Budel Transportes"
+            className="brand-logo"
+          />
         </button>
 
         <div className="header-actions">
-          {isAdmin && (
+          {session && profile?.role === "admin" && (
             <button className="header-link" onClick={onAdmin}>
-              <ShieldCheck size={17} />
-              Administrativo
+              <ShieldCheck size={16} />
+              Administração
             </button>
           )}
 
-          <button className="header-link" onClick={onDownload}>
-            <Download size={17} />
-            F103-04
-          </button>
+          {session && profile?.role !== "admin" && (
+            <button className="header-link" onClick={onSupplier}>
+              <FolderOpen size={16} />
+              Meus CNPJs
+            </button>
+          )}
 
-          {session && (
-            <button className="header-link" onClick={onLogout}>
-              <LogOut size={17} />
+          {!session ? (
+            <button className="header-link" onClick={onLogin}>
+              <LogIn size={16} />
+              Entrar
+            </button>
+          ) : (
+            <button className="header-link" onClick={onSignOut}>
+              <LogOut size={16} />
               Sair
             </button>
           )}
@@ -304,173 +517,90 @@ function Header({
   );
 }
 
-function Home({ onLogin, onSignup, onDownload }) {
+function HomePage({ session, profile, onStart }) {
   return (
     <main className="page">
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="eyebrow">PORTAL DE FORNECEDORES</span>
+      <section className="hero-section">
+        <div className="hero-content">
+          <div className="hero-badge">
+            <ShieldCheck size={16} />
+            Portal de Homologação de Fornecedores
+          </div>
 
           <h1>Homologação de Fornecedores</h1>
 
           <p>
             Envie e acompanhe a documentação necessária para homologação de
-            fornecedores da Budel Transportes Ltda.
+            fornecedores da Budel Transportes.
           </p>
 
-          <div className="hero-buttons">
-            <button className="primary-button" onClick={onSignup}>
-              Enviar documentos para Homologação
-            </button>
-
-            <button className="secondary-button" onClick={onLogin}>
-              Entrar na minha conta
-            </button>
-          </div>
+          <button className="primary-button hero-button" onClick={onStart}>
+            <Upload size={18} />
+            {session
+              ? profile?.role === "admin"
+                ? "Acessar administração"
+                : "Enviar documentos para Homologação"
+              : "Enviar documentos para Homologação"}
+          </button>
         </div>
-
-        <div className="hero-card">
-          <Building2 size={42} />
-
-          <h3>Portal do fornecedor</h3>
-
-          <p>
-            Uma conta pode administrar um ou vários CNPJs e acompanhar a
-            situação de toda a documentação.
-          </p>
-        </div>
-      </section>
-
-      <section className="feature-grid">
-        <div className="feature-card">
-          <Building2 />
-          <h3>Vários CNPJs</h3>
-          <p>Cadastre e acompanhe vários CNPJs usando a mesma conta.</p>
-        </div>
-
-        <div className="feature-card">
-          <FileText />
-          <h3>Documentação</h3>
-          <p>Envie os documentos exigidos para cada empresa.</p>
-        </div>
-
-        <div className="feature-card">
-          <CalendarDays />
-          <h3>Validade</h3>
-          <p>Informe as datas de validade para facilitar o acompanhamento.</p>
-        </div>
-      </section>
-
-      <section className="download-box">
-        <div>
-          <h2>Checklist F103-04</h2>
-
-          <p>
-            Baixe o checklist original de inspeção de fornecedores da Budel.
-          </p>
-        </div>
-
-        <button className="secondary-button" onClick={onDownload}>
-          <Download size={18} />
-          Baixar checklist
-        </button>
       </section>
     </main>
   );
 }
 
-function AuthPage({ mode, setMode, onBack }) {
+function LoginPage({ onSuccess, onSignup, onBack }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
 
-  async function submit(e) {
-    e.preventDefault();
+  async function handleLogin(event) {
+    event.preventDefault();
 
     setLoading(true);
-    setError("");
     setMessage("");
 
-    try {
-      if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            data: {
-              full_name: name.trim(),
-            },
-            emailRedirectTo: window.location.origin,
-          },
-        });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
-        if (error) throw error;
-
-        setMessage(
-          "Cadastro criado! Verifique seu e-mail para confirmar a conta. Ao clicar no link, você será direcionado novamente para o portal."
-        );
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-
-        if (error) throw error;
-      }
-    } catch (err) {
-      setError(err.message || "Não foi possível concluir a operação.");
-    } finally {
+    if (error) {
+      setMessage(error.message);
       setLoading(false);
+      return;
     }
+
+    setLoading(false);
+    onSuccess();
   }
 
   return (
-    <main className="page narrow-page">
-      <button className="back-button" onClick={onBack}>
-        <ArrowLeft size={17} />
-        Voltar
-      </button>
-
+    <main className="page">
       <div className="auth-card">
-        <span className="eyebrow">
-          {mode === "signup" ? "NOVO CADASTRO" : "ACESSO DO FORNECEDOR"}
-        </span>
+        <button className="back-button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Voltar
+        </button>
 
-        <h1>
-          {mode === "signup"
-            ? "Criar conta de fornecedor"
-            : "Entrar no portal"}
-        </h1>
+        <div className="auth-heading">
+          <div className="auth-icon">
+            <LogIn size={22} />
+          </div>
 
-        <p className="muted">
-          {mode === "signup"
-            ? "Crie uma conta para cadastrar e acompanhar seus CNPJs."
-            : "Acesse seus CNPJs e acompanhe a documentação."}
-        </p>
+          <div>
+            <h1>Entrar</h1>
+            <p>Acesse o portal de homologação.</p>
+          </div>
+        </div>
 
-        <form onSubmit={submit}>
-          {mode === "signup" && (
-            <label>
-              Nome
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Nome do responsável"
-                required
-              />
-            </label>
-          )}
-
+        <form onSubmit={handleLogin} className="form">
           <label>
             E-mail
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="seu@email.com"
+              onChange={(event) => setEmail(event.target.value)}
               required
             />
           </label>
@@ -480,201 +610,209 @@ function AuthPage({ mode, setMode, onBack }) {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mínimo de 6 caracteres"
-              minLength={6}
+              onChange={(event) => setPassword(event.target.value)}
               required
             />
           </label>
 
-          {error && <div className="alert error">{error}</div>}
+          {message && <div className="form-message error">{message}</div>}
 
-          {message && <div className="alert success">{message}</div>}
-
-          <button className="primary-button full-button" disabled={loading}>
-            {loading
-              ? "Aguarde..."
-              : mode === "signup"
-              ? "Criar conta"
-              : "Entrar"}
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? (
+              <>
+                <RefreshCw size={17} className="spin" />
+                Entrando...
+              </>
+            ) : (
+              <>
+                <LogIn size={17} />
+                Entrar
+              </>
+            )}
           </button>
         </form>
 
-        <div className="auth-switch">
-          {mode === "signup" ? (
-            <>
-              Já possui uma conta?
-              <button onClick={() => setMode("login")}>Entrar</button>
-            </>
-          ) : (
-            <>
-              Ainda não possui conta?
-              <button onClick={() => setMode("signup")}>
-                Criar cadastro
-              </button>
-            </>
-          )}
+        <div className="auth-footer">
+          <span>Ainda não possui acesso?</span>
+
+          <button className="text-button" onClick={onSignup}>
+            Criar conta de fornecedor
+          </button>
         </div>
       </div>
     </main>
   );
 }
 
-function CompanyForm({ onCancel, onCreated }) {
-  const [legalName, setLegalName] = useState("");
-  const [cnpj, setCnpj] = useState("");
-  const [modality, setModality] = useState("");
+function SignupPage({ onBack, onSuccess }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [success, setSuccess] = useState(false);
 
-  async function submit(e) {
-    e.preventDefault();
+  async function handleSignup(event) {
+    event.preventDefault();
 
-    setLoading(true);
-    setError("");
+    setMessage("");
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        throw new Error("Sua sessão expirou. Entre novamente.");
-      }
-
-      const cleanCnpj = cnpj.replace(/\D/g, "");
-
-      if (cleanCnpj.length !== 14) {
-        throw new Error("Digite um CNPJ válido com 14 números.");
-      }
-
-      if (!modality.trim()) {
-        throw new Error(
-          "Digite o serviço ou atividade fornecida à Budel."
-        );
-      }
-
-      const { data, error } = await supabase
-        .from("companies")
-        .insert({
-          owner_id: user.id,
-          legal_name: legalName.trim(),
-          cnpj: cleanCnpj,
-          modality: modality.trim(),
-          submission_status: "draft",
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      onCreated(data);
-    } catch (err) {
-      if (err.message?.includes("companies_cnpj_key")) {
-        setError("Este CNPJ já está cadastrado no portal.");
-      } else {
-        setError(err.message || "Não foi possível cadastrar o CNPJ.");
-      }
-    } finally {
-      setLoading(false);
+    if (password !== confirmPassword) {
+      setMessage("As senhas não são iguais.");
+      return;
     }
-  }
 
-  return (
-    <div className="panel">
-      <button className="back-button" onClick={onCancel}>
-        <ArrowLeft size={17} />
-        Voltar para meus CNPJs
-      </button>
+    if (password.length < 6) {
+      setMessage("A senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
 
-      <div className="panel-title">
-        <div>
-          <span className="eyebrow">NOVO CNPJ</span>
-          <h1>Cadastrar empresa</h1>
-        </div>
-      </div>
-
-      <form className="form-grid" onSubmit={submit}>
-        <label className="full-width">
-          Razão Social
-          <input
-            value={legalName}
-            onChange={(e) => setLegalName(e.target.value)}
-            placeholder="Digite a razão social"
-            required
-          />
-        </label>
-
-        <label>
-          CNPJ
-          <input
-            value={formatCnpj(cnpj)}
-            onChange={(e) => setCnpj(e.target.value)}
-            placeholder="00.000.000/0000-00"
-            required
-          />
-        </label>
-
-        <label>
-          Serviço/atividade fornecida à Budel
-          <input
-            value={modality}
-            onChange={(e) => setModality(e.target.value)}
-            placeholder="Digite o serviço ou atividade da empresa"
-            required
-          />
-        </label>
-
-        {error && <div className="alert error full-width">{error}</div>}
-
-        <div className="form-actions full-width">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={onCancel}
-          >
-            Cancelar
-          </button>
-
-          <button className="primary-button" disabled={loading}>
-            {loading ? "Cadastrando..." : "Cadastrar empresa"}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-/* =========================================================
-   ÁREA DO FORNECEDOR
-   ========================================================= */
-
-function SupplierDashboard() {
-  const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [screen, setScreen] = useState("companies");
-  const [selectedCompany, setSelectedCompany] = useState(null);
-  const [showCompanyForm, setShowCompanyForm] = useState(false);
-
-  async function loadCompanies() {
     setLoading(true);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: {
+          full_name: name.trim(),
+        },
+        emailRedirectTo: window.location.origin,
+      },
+    });
 
-    if (!user) {
+    if (error) {
+      setMessage(error.message);
       setLoading(false);
       return;
     }
 
+    setSuccess(true);
+    setLoading(false);
+  }
+
+  if (success) {
+    return (
+      <main className="page">
+        <div className="auth-card success-card">
+          <div className="success-icon">
+            <CheckCircle2 size={36} />
+          </div>
+
+          <h1>Conta criada!</h1>
+
+          <p>
+            Enviamos um e-mail de confirmação para o endereço informado.
+            Confirme seu e-mail para acessar o portal.
+          </p>
+
+          <button className="primary-button" onClick={onSuccess}>
+            <LogIn size={17} />
+            Voltar para o login
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="page">
+      <div className="auth-card">
+        <button className="back-button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Voltar
+        </button>
+
+        <div className="auth-heading">
+          <div className="auth-icon">
+            <UserPlus size={22} />
+          </div>
+
+          <div>
+            <h1>Criar conta</h1>
+            <p>Cadastre o acesso da sua empresa.</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSignup} className="form">
+          <label>
+            Nome
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            E-mail
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            Senha
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+
+          <label>
+            Confirmar senha
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+            />
+          </label>
+
+          {message && <div className="form-message error">{message}</div>}
+
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? (
+              <>
+                <RefreshCw size={17} className="spin" />
+                Criando...
+              </>
+            ) : (
+              <>
+                <UserPlus size={17} />
+                Criar conta
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+    </main>
+  );
+}
+
+function SupplierDashboard({ session, profile, onOpenCompany }) {
+  const [companies, setCompanies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadCompanies() {
+    setLoading(true);
+
     const { data, error } = await supabase
       .from("companies")
       .select("*")
-      .eq("owner_id", user.id)
+      .eq("owner_id", session.user.id)
       .order("created_at", { ascending: false });
 
-    if (!error) {
+    if (error) {
+      setMessage(error.message);
+    } else {
       setCompanies(data || []);
     }
 
@@ -683,13 +821,11 @@ function SupplierDashboard() {
 
   useEffect(() => {
     loadCompanies();
-  }, []);
+  }, [session.user.id]);
 
   async function deleteCompany(company) {
     const confirmed = window.confirm(
-      `Tem certeza que deseja excluir o CNPJ ${formatCnpj(
-        company.cnpj
-      )}?\n\nA empresa e toda a documentação cadastrada para ela serão excluídas.`
+      `Excluir o CNPJ ${company.cnpj}? Essa ação não poderá ser desfeita.`
     );
 
     if (!confirmed) return;
@@ -697,172 +833,255 @@ function SupplierDashboard() {
     const { error } = await supabase
       .from("companies")
       .delete()
-      .eq("id", company.id);
+      .eq("id", company.id)
+      .eq("owner_id", session.user.id);
 
     if (error) {
-      alert(`Não foi possível excluir o CNPJ:\n${error.message}`);
+      setMessage(error.message);
       return;
     }
 
-    setCompanies((current) =>
-      current.filter((item) => item.id !== company.id)
-    );
-
-    if (selectedCompany?.id === company.id) {
-      setSelectedCompany(null);
-      setScreen("companies");
-    }
-  }
-
-  function openCompany(company) {
-    setSelectedCompany(company);
-    setScreen("documents");
-  }
-
-  function companyCreated(company) {
-    setCompanies((current) => [company, ...current]);
-    setShowCompanyForm(false);
-    openCompany(company);
-  }
-
-  if (showCompanyForm) {
-    return (
-      <main className="page">
-        <CompanyForm
-          onCancel={() => setShowCompanyForm(false)}
-          onCreated={companyCreated}
-        />
-      </main>
-    );
-  }
-
-  if (screen === "documents" && selectedCompany) {
-    return (
-      <main className="page">
-        <DocumentsPage
-          company={selectedCompany}
-          onBack={() => {
-            setScreen("companies");
-            loadCompanies();
-          }}
-        />
-      </main>
-    );
+    await loadCompanies();
   }
 
   return (
     <main className="page">
       <div className="dashboard-heading">
         <div>
-          <span className="eyebrow">ÁREA DO FORNECEDOR</span>
-
+          <div className="section-kicker">Portal do fornecedor</div>
           <h1>Meus CNPJs</h1>
-
-          <p className="muted">
-            Cadastre suas empresas e acompanhe a documentação de cada CNPJ.
+          <p>
+            {profile?.full_name
+              ? `Olá, ${profile.full_name}.`
+              : "Gerencie suas empresas e documentos."}
           </p>
         </div>
 
         <button
           className="primary-button"
-          onClick={() => setShowCompanyForm(true)}
+          onClick={() => setShowCreate(true)}
         >
-          <Plus size={18} />
+          <Plus size={17} />
           Cadastrar CNPJ
         </button>
       </div>
 
+      {message && <div className="form-message error">{message}</div>}
+
       {loading ? (
-        <div className="loading-box">Carregando seus CNPJs...</div>
+        <div className="loading-box">
+          <RefreshCw size={22} className="spin" />
+          Carregando...
+        </div>
       ) : companies.length === 0 ? (
-        <div className="empty-box">
-          <Building2 size={40} />
-
+        <div className="empty-state">
+          <FolderOpen size={38} />
           <h2>Nenhum CNPJ cadastrado</h2>
-
-          <p>Comece cadastrando a empresa que deseja homologar.</p>
-
+          <p>
+            Cadastre o primeiro CNPJ para começar o processo de homologação.
+          </p>
           <button
-            className="primary-button"
-            onClick={() => setShowCompanyForm(true)}
+            className="secondary-button"
+            onClick={() => setShowCreate(true)}
           >
-            <Plus size={18} />
-            Cadastrar primeiro CNPJ
+            <Plus size={17} />
+            Cadastrar CNPJ
           </button>
         </div>
       ) : (
         <div className="company-grid">
           {companies.map((company) => (
-            <CompanyCard
-              key={company.id}
-              company={company}
-              onClick={() => openCompany(company)}
-              onDelete={deleteCompany}
-            />
+            <article className="company-card" key={company.id}>
+              <button
+                className="company-card-main"
+                onClick={() => onOpenCompany(company)}
+              >
+                <div className="company-icon">
+                  <FileCheck2 size={23} />
+                </div>
+
+                <div className="company-content">
+                  <h2>{company.legal_name}</h2>
+                  <p>{formatCnpj(company.cnpj)}</p>
+
+                  <div className="company-modality">
+                    {company.modality || "Serviço/atividade não informado"}
+                  </div>
+
+                  <div className="company-card-status">
+                    <StatusBadge
+                      status={company.submission_status}
+                      label={getCompanyStatusLabel(company.submission_status)}
+                    />
+                  </div>
+                </div>
+
+                <ChevronRight size={20} className="company-arrow" />
+              </button>
+
+              <button
+                className="delete-company-button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  deleteCompany(company);
+                }}
+              >
+                <Trash2 size={15} />
+                Excluir CNPJ
+              </button>
+            </article>
           ))}
         </div>
+      )}
+
+      {showCreate && (
+        <CreateCompanyModal
+          session={session}
+          onClose={() => setShowCreate(false)}
+          onCreated={async (company) => {
+            setShowCreate(false);
+            await loadCompanies();
+            onOpenCompany(company);
+          }}
+        />
       )}
     </main>
   );
 }
 
-function CompanyCard({ company, onClick, onDelete }) {
-  async function handleDelete(e) {
-    e.stopPropagation();
-    await onDelete(company);
+function CreateCompanyModal({ session, onClose, onCreated }) {
+  const [legalName, setLegalName] = useState("");
+  const [cnpj, setCnpj] = useState("");
+  const [modality, setModality] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function handleCreate(event) {
+    event.preventDefault();
+
+    setMessage("");
+
+    const cleanCnpj = cnpj.replace(/\D/g, "");
+
+    if (cleanCnpj.length !== 14) {
+      setMessage("Informe um CNPJ válido com 14 números.");
+      return;
+    }
+
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("companies")
+      .insert({
+        owner_id: session.user.id,
+        legal_name: legalName.trim(),
+        cnpj: cleanCnpj,
+        modality: modality.trim(),
+        submission_status: "draft",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    onCreated(data);
   }
 
   return (
-    <div className="company-card">
-      <button
-        type="button"
-        className="company-card-main"
-        onClick={onClick}
-      >
-        <div className="company-icon">
-          <Building2 size={25} />
-        </div>
+    <div className="modal-overlay">
+      <div className="modal-card">
+        <button className="modal-close" onClick={onClose}>
+          <X size={20} />
+        </button>
 
-        <div className="company-content">
-          <h2>{company.legal_name}</h2>
+        <div className="modal-heading">
+          <div className="modal-icon">
+            <Plus size={20} />
+          </div>
 
-          <p>CNPJ: {formatCnpj(company.cnpj)}</p>
-
-          <span className="company-modality">
-            {company.modality || "Serviço não informado"}
-          </span>
-
-          <div style={{ marginTop: "12px" }}>
-            <span className="status-badge status-pending">
-              {companyStatusLabel(company.submission_status)}
-            </span>
+          <div>
+            <h2>Cadastrar CNPJ</h2>
+            <p>Informe os dados da empresa.</p>
           </div>
         </div>
 
-        <div className="company-arrow">›</div>
-      </button>
+        <form onSubmit={handleCreate} className="form">
+          <label>
+            Razão Social
+            <input
+              value={legalName}
+              onChange={(event) => setLegalName(event.target.value)}
+              required
+            />
+          </label>
 
-      <button
-        type="button"
-        className="delete-company-button"
-        onClick={handleDelete}
-      >
-        Excluir CNPJ
-      </button>
+          <label>
+            CNPJ
+            <input
+              value={formatCnpj(cnpj)}
+              onChange={(event) => setCnpj(event.target.value)}
+              placeholder="00.000.000/0000-00"
+              required
+            />
+          </label>
+
+          <label>
+            Serviço/atividade fornecida à Budel
+            <textarea
+              value={modality}
+              onChange={(event) => setModality(event.target.value)}
+              placeholder="Ex.: Lavagem de caminhões, manutenção de suspensão, solda..."
+              rows={4}
+              required
+            />
+          </label>
+
+          {message && <div className="form-message error">{message}</div>}
+
+          <div className="form-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onClose}
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw size={16} className="spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  Salvar CNPJ
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
 
-/* =========================================================
-   DOCUMENTOS DO FORNECEDOR
-   ========================================================= */
-
-function DocumentsPage({ company, onBack }) {
+function SupplierCompanyPage({ session, company, onBack }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState({});
   const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [submissionLoading, setSubmissionLoading] = useState(false);
 
   async function loadDocuments() {
     setLoading(true);
@@ -874,7 +1093,7 @@ function DocumentsPage({ company, onBack }) {
       .order("created_at", { ascending: true });
 
     if (error) {
-      setError(error.message);
+      setMessage(error.message);
     } else {
       setDocuments(data || []);
     }
@@ -886,893 +1105,870 @@ function DocumentsPage({ company, onBack }) {
     loadDocuments();
   }, [company.id]);
 
-  const documentMap = useMemo(() => {
-    return Object.fromEntries(
-      documents.map((doc) => [doc.type, doc])
-    );
-  }, [documents]);
-
-  const summary = useMemo(() => {
-    let ok = 0;
-    let pending = 0;
-    let expired = 0;
-    let notAvailable = 0;
-
-    documentTypes.forEach((item) => {
-      const status = documentStatus(documentMap[item.key]);
-
-      if (status === "ok" || status === "expiring") {
-        ok++;
-      } else if (status === "expired") {
-        expired++;
-      } else if (status === "not_available") {
-        notAvailable++;
-      } else {
-        pending++;
-      }
-    });
-
-    return {
-      ok,
-      pending,
-      expired,
-      notAvailable,
-    };
-  }, [documentMap]);
-
-  async function saveDocument(type, values) {
-    setSaving((current) => ({
-      ...current,
-      [type]: true,
-    }));
-
-    setError("");
+  async function saveDocument(payload) {
+    setSaving(true);
     setMessage("");
 
+    const existing = documents.find((item) => item.type === payload.type);
+
+    const updateData = {
+      company_id: company.id,
+      type: payload.type,
+      file_path: payload.files?.[0]?.path || existing?.file_path || null,
+      original_name:
+        payload.files?.[0]?.name || existing?.original_name || null,
+      files: payload.files || getDocumentFiles(existing),
+      issue_date: payload.issue_date || null,
+      expiry_date: payload.expiry_date || null,
+      not_available: Boolean(payload.not_available),
+      notes: payload.notes || existing?.notes || null,
+      review_status:
+        existing?.review_status === "rejected" && payload.files?.length
+          ? "pending"
+          : existing?.review_status || "pending",
+      reviewed_at:
+        existing?.review_status === "rejected" && payload.files?.length
+          ? null
+          : existing?.reviewed_at || null,
+      reviewed_by:
+        existing?.review_status === "rejected" && payload.files?.length
+          ? null
+          : existing?.reviewed_by || null,
+      review_notes:
+        existing?.review_status === "rejected" && payload.files?.length
+          ? null
+          : existing?.review_notes || null,
+    };
+
+    const { error } = await supabase
+      .from("documents")
+      .upsert(updateData, { onConflict: "company_id,type" });
+
+    if (error) {
+      setMessage(error.message);
+      setSaving(false);
+      return false;
+    }
+
+    await loadDocuments();
+
+    setSaving(false);
+    return true;
+  }
+
+  async function uploadFiles(type, files) {
+    const uploaded = [];
+
+    for (const file of files) {
+      const safeName = file.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+
+      const path = `${session.user.id}/${company.id}/${type}/${Date.now()}_${safeName}`;
+
+      const { error } = await supabase.storage
+        .from("supplier-documents")
+        .upload(path, file, {
+          upsert: false,
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      uploaded.push({
+        path,
+        name: file.name,
+      });
+    }
+
+    return uploaded;
+  }
+
+  async function handleDocumentSave(type, data) {
     try {
-      const existing = documentMap[type];
+      let files = data.files || [];
 
-      /*
-        Se o documento estava reprovado e o fornecedor
-        enviou novos arquivos, os arquivos antigos são
-        substituídos pelos novos.
-      */
-      let files = [];
-
-      if (
-        existing?.review_status !== "rejected"
-      ) {
-        files = Array.isArray(existing?.files)
-          ? [...existing.files]
-          : [];
-
-        if (files.length === 0 && existing?.file_path) {
-          files.push({
-            path: existing.file_path,
-            name: existing.original_name || "Documento",
-          });
-        }
+      if (data.fileObjects?.length) {
+        const uploaded = await uploadFiles(type, data.fileObjects);
+        files = [...files, ...uploaded];
       }
 
-      if (values.files?.length) {
-        for (const file of values.files) {
-          const extension =
-            file.name.split(".").pop()?.toLowerCase() || "pdf";
-
-          const safeName = `${crypto.randomUUID()}.${extension}`;
-
-          const path = `${company.owner_id}/${company.id}/${type}/${safeName}`;
-
-          const { error: uploadError } = await supabase.storage
-            .from("supplier-documents")
-            .upload(path, file, {
-              upsert: true,
-            });
-
-          if (uploadError) {
-            throw uploadError;
-          }
-
-          files.push({
-            path,
-            name: file.name,
-          });
-        }
-      }
-
-      if (
-        existing?.review_status === "rejected" &&
-        values.files?.length
-      ) {
-        /*
-          Os arquivos novos já são os únicos arquivos
-          considerados para o documento.
-        */
-        files = files.slice(-values.files.length);
-      }
-
-      const firstFile = files[0] || null;
-
-      const payload = {
-        company_id: company.id,
-        type,
-        file_path: firstFile?.path || null,
-        original_name: firstFile?.name || null,
+      await saveDocument({
+        ...data,
         files,
-        issue_date: values.issueDate || null,
-        expiry_date: values.expiryDate || null,
-        not_available: values.notAvailable,
-
-        notes: null,
-
-        review_status: "pending",
-        review_notes: null,
-        reviewed_at: null,
-        reviewed_by: null,
-      };
-
-      const { data, error: dbError } = await supabase
-        .from("documents")
-        .upsert(payload, {
-          onConflict: "company_id,type",
-        })
-        .select()
-        .single();
-
-      if (dbError) {
-        throw dbError;
-      }
-
-      if (existing?.review_status === "rejected") {
-        const { error: companyError } = await supabase
-          .from("companies")
-          .update({
-            submission_status: "draft",
-          })
-          .eq("id", company.id);
-
-        if (companyError) {
-          throw companyError;
-        }
-      }
-
-      setDocuments((current) => [
-        ...current.filter((item) => item.type !== type),
-        data,
-      ]);
-
-      setMessage("Documento(s) salvo(s) com sucesso.");
-    } catch (err) {
-      setError(
-        err.message || "Não foi possível salvar o documento."
-      );
-    } finally {
-      setSaving((current) => ({
-        ...current,
-        [type]: false,
-      }));
+      });
+    } catch (error) {
+      setMessage(error.message || "Não foi possível enviar o arquivo.");
+      setSaving(false);
     }
   }
 
   async function submitForApproval() {
-    setError("");
+    setSubmissionLoading(true);
     setMessage("");
 
-    const missing = documentTypes.filter((item) => {
-      const doc = documentMap[item.key];
+    const missing = [];
 
-      if (isMandatoryDocument(item.key)) {
-        return !hasDocumentFiles(doc) || doc?.not_available;
+    for (const item of DOCUMENTS) {
+      const document = documents.find((doc) => doc.type === item.type);
+      const files = getDocumentFiles(document);
+
+      if (item.required) {
+        if (!files.length) {
+          missing.push(item.label);
+          continue;
+        }
+      } else if (!files.length && !document?.not_available) {
+        missing.push(`${item.label} — envie o documento ou marque "Não possuímos"`);
+        continue;
       }
 
-      if (doc?.not_available) {
-        return false;
+      if (item.expires && files.length) {
+        if (!document?.issue_date || !document?.expiry_date) {
+          missing.push(`${item.label} — informe a data de emissão`);
+          continue;
+        }
+
+        const expectedExpiry = calculateExpiryDate(document.issue_date);
+
+        if (document.expiry_date !== expectedExpiry) {
+          missing.push(
+            `${item.label} — a validade deve ser ${formatDate(expectedExpiry)}`
+          );
+          continue;
+        }
+
+        const days = daysUntil(document.expiry_date);
+
+        if (days !== null && days < 0) {
+          missing.push(`${item.label} — documento vencido`);
+        }
       }
+    }
 
-      return !hasDocumentFiles(doc);
-    });
-
-    if (missing.length > 0) {
-      setError(
-        `Ainda existem ${missing.length} documentação(ões) pendente(s). Anexe pelo menos um arquivo em cada documento necessário ou marque "Não possuímos essa documentação" nos documentos em que essa opção estiver disponível.`
+    if (missing.length) {
+      setMessage(
+        `Não é possível enviar para homologação. Corrija:\n• ${missing.join(
+          "\n• "
+        )}`
       );
-
+      setSubmissionLoading(false);
       return;
     }
 
-    const withoutExpiry = documentTypes.filter((item) => {
-      const doc = documentMap[item.key];
-
-      if (!doc || doc.not_available) {
-        return false;
-      }
-
-      if (!item.expires) {
-        return false;
-      }
-
-      return !doc.expiry_date;
-    });
-
-    if (withoutExpiry.length > 0) {
-      setError(
-        "Informe a data de validade de todos os documentos que possuem validade."
-      );
-
-      return;
-    }
-
-    /*
-      Confere a regra exata:
-      emissão + 1 ano - 1 dia.
-    */
-    const invalidExpiry = documentTypes.filter((item) => {
-      const doc = documentMap[item.key];
-
-      if (!doc || doc.not_available || !item.expires) {
-        return false;
-      }
-
-      if (!doc.issue_date || !doc.expiry_date) {
-        return false;
-      }
-
-      return (
-        calculateExpiryDate(doc.issue_date) !==
-        doc.expiry_date
-      );
-    });
-
-    if (invalidExpiry.length > 0) {
-      setError(
-        "Existem documentos com data de validade diferente da regra permitida: a validade deve ser exatamente 1 ano menos 1 dia após a data de emissão."
-      );
-
-      return;
-    }
-
-    const expired = documentTypes.filter((item) => {
-      const doc = documentMap[item.key];
-
-      if (!doc || doc.not_available) {
-        return false;
-      }
-
-      if (!item.expires) {
-        return false;
-      }
-
-      return documentStatus(doc) === "expired";
-    });
-
-    if (expired.length > 0) {
-      setError(
-        `Não é possível enviar a documentação enquanto houver ${expired.length} documento(s) vencido(s). Atualize os documentos vencidos.`
-      );
-
-      return;
-    }
-
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("companies")
       .update({
         submission_status: "submitted",
         submitted_at: new Date().toISOString(),
       })
-      .eq("id", company.id);
+      .eq("id", company.id)
+      .eq("owner_id", session.user.id)
+      .select()
+      .single();
 
     if (error) {
-      setError(error.message);
+      setMessage(error.message);
+      setSubmissionLoading(false);
       return;
     }
 
-    company.submission_status = "submitted";
+    Object.assign(company, data);
 
-    setMessage(
-      "Documentação enviada para homologação com sucesso!"
-    );
-  }
-
-  async function openFiles(doc) {
-    if (!doc) return;
-
-    let files = Array.isArray(doc.files)
-      ? doc.files
-      : [];
-
-    if (files.length === 0 && doc.file_path) {
-      files = [
-        {
-          path: doc.file_path,
-          name: doc.original_name || "Documento",
-        },
-      ];
-    }
-
-    if (files.length === 0) {
-      setError("Nenhum arquivo encontrado para este documento.");
-      return;
-    }
-
-    for (const file of files) {
-      if (!file?.path) continue;
-
-      const { data, error } = await supabase.storage
-        .from("supplier-documents")
-        .createSignedUrl(file.path, 300);
-
-      if (error) {
-        setError(error.message);
-        continue;
-      }
-
-      window.open(data.signedUrl, "_blank");
-    }
+    setMessage("Documentação enviada para homologação com sucesso.");
+    setSubmissionLoading(false);
   }
 
   return (
-    <div>
-      <button className="back-button" onClick={onBack}>
-        <ArrowLeft size={17} />
-        Voltar para meus CNPJs
-      </button>
-
-      <div className="company-header">
+    <main className="page">
+      <div className="dashboard-heading">
         <div>
-          <span className="eyebrow">DOCUMENTAÇÃO</span>
+          <button className="back-button" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Meus CNPJs
+          </button>
+
+          <div className="section-kicker">Fornecedor</div>
 
           <h1>{company.legal_name}</h1>
 
-          <p>CNPJ: {formatCnpj(company.cnpj)}</p>
-
-          <span className="company-modality">
-            {company.modality}
-          </span>
-
-          <div style={{ marginTop: "12px" }}>
-            <span className="status-badge status-pending">
-              {companyStatusLabel(company.submission_status)}
-            </span>
-          </div>
+          <p>
+            CNPJ: {formatCnpj(company.cnpj)}
+            <br />
+            Serviço/atividade:{" "}
+            {company.modality || "Não informado"}
+          </p>
         </div>
+
+        <StatusBadge
+          status={company.submission_status}
+          label={getCompanyStatusLabel(company.submission_status)}
+        />
       </div>
 
       {company.submission_status === "rejected" && (
-        <div className="alert error">
-          <strong>A homologação foi reprovada pela Budel.</strong>
-          <br />
-          {company.review_notes ||
-            "Verifique as observações dos documentos, atualize o que for necessário e envie novamente para análise."}
+        <div className="notice-card warning">
+          <AlertCircle size={20} />
+
+          <div>
+            <strong>Correções necessárias</strong>
+
+            <p>
+              Alguns documentos ou informações precisam ser corrigidos.
+              Após corrigir, envie novamente para homologação.
+            </p>
+
+            {company.review_notes && (
+              <p>
+                <strong>Observação da Budel:</strong>{" "}
+                {company.review_notes}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
-      <div className="summary-grid">
-        <div>
-          <strong>{summary.ok}</strong>
-          <span>OK</span>
-        </div>
-
-        <div>
-          <strong>{summary.pending}</strong>
-          <span>Pendentes</span>
-        </div>
-
-        <div>
-          <strong>{summary.expired}</strong>
-          <span>Vencidos</span>
-        </div>
-
-        <div>
-          <strong>{summary.notAvailable}</strong>
-          <span>Não possui</span>
-        </div>
-      </div>
-
       {message && (
-        <div className="alert success">
+        <div className="form-message info pre-line">
           {message}
         </div>
       )}
 
-      {error && (
-        <div className="alert error">
-          {error}
-        </div>
-      )}
-
-      <div className="documents-header">
-        <div>
-          <h2>Documentos obrigatórios</h2>
-
-          <p className="muted">
-            Anexe os documentos e informe suas respectivas validades.
-          </p>
-        </div>
-
-        <button
-          className="secondary-button"
-          onClick={() => window.open(checklistUrl, "_blank")}
-        >
-          <Download size={18} />
-          Baixar F103-04
-        </button>
-      </div>
-
       {loading ? (
         <div className="loading-box">
+          <RefreshCw size={22} className="spin" />
           Carregando documentos...
         </div>
       ) : (
         <div className="documents-list">
-          {documentTypes.map((item) => (
-            <DocumentCard
-              key={item.key}
+          {DOCUMENTS.map((item) => (
+            <SupplierDocumentCard
+              key={item.type}
               item={item}
-              document={documentMap[item.key]}
-              saving={saving[item.key]}
-              onSave={saveDocument}
-              onOpen={openFiles}
+              document={documents.find((doc) => doc.type === item.type)}
+              onSave={(data) => handleDocumentSave(item.type, data)}
+              saving={saving}
             />
           ))}
         </div>
       )}
 
-      <div className="submit-box">
+      <div className="submit-section">
         <div>
           <h2>Finalizar envio</h2>
-
           <p>
-            Depois de preencher a documentação, envie o cadastro para análise
-            da Budel.
+            Confira todos os documentos e envie a documentação para análise da
+            Budel.
           </p>
         </div>
 
         <button
           className="primary-button"
           onClick={submitForApproval}
+          disabled={
+            submissionLoading ||
+            company.submission_status === "submitted" ||
+            company.submission_status === "approved"
+          }
         >
-          Enviar para homologação
+          {submissionLoading ? (
+            <>
+              <RefreshCw size={17} className="spin" />
+              Enviando...
+            </>
+          ) : company.submission_status === "submitted" ? (
+            <>
+              <Check size={17} />
+              Enviado para homologação
+            </>
+          ) : (
+            <>
+              <Send size={17} />
+              Enviar para homologação
+            </>
+          )}
         </button>
       </div>
-    </div>
+    </main>
   );
 }
 
-function DocumentCard({
-  item,
-  document,
-  saving,
-  onSave,
-  onOpen,
-}) {
+function SupplierDocumentCard({ item, document, onSave, saving }) {
   const [files, setFiles] = useState([]);
-
-  const [issueDate, setIssueDate] = useState(
-    document?.issue_date || ""
-  );
-
-  const [expiryDate, setExpiryDate] = useState(
-    document?.expiry_date || ""
-  );
-
+  const [issueDate, setIssueDate] = useState(document?.issue_date || "");
+  const [expiryDate, setExpiryDate] = useState(document?.expiry_date || "");
   const [notAvailable, setNotAvailable] = useState(
-    document?.not_available || false
+    Boolean(document?.not_available)
   );
-
-  const status = documentStatus(document);
-
-  const mandatory = isMandatoryDocument(item.key);
-
-  const existingFilesCount = Array.isArray(document?.files)
-    ? document.files.length
-    : document?.file_path
-    ? 1
-    : 0;
+  const [fileObjects, setFileObjects] = useState([]);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
+    setFiles(getDocumentFiles(document));
     setIssueDate(document?.issue_date || "");
     setExpiryDate(document?.expiry_date || "");
-    setNotAvailable(document?.not_available || false);
-    setFiles([]);
+    setNotAvailable(Boolean(document?.not_available));
   }, [document]);
-
-  function save() {
-    const hasExistingFile = existingFilesCount > 0;
-    const hasNewFile = files.length > 0;
-
-    if (mandatory) {
-      if (!hasExistingFile && !hasNewFile) {
-        alert(
-          "Este documento é obrigatório. Selecione pelo menos um arquivo."
-        );
-
-        return;
-      }
-    } else {
-      if (
-        !notAvailable &&
-        !hasExistingFile &&
-        !hasNewFile
-      ) {
-        alert(
-          "Selecione pelo menos um arquivo ou marque 'Não possuímos essa documentação'."
-        );
-
-        return;
-      }
-    }
-
-    if (
-      !notAvailable &&
-      item.expires &&
-      !issueDate
-    ) {
-      alert("Informe a data de emissão do documento.");
-
-      return;
-    }
-
-    if (
-      !notAvailable &&
-      item.expires &&
-      !expiryDate
-    ) {
-      alert("Informe a validade do documento.");
-
-      return;
-    }
-
-    if (
-      !notAvailable &&
-      item.expires &&
-      calculateExpiryDate(issueDate) !== expiryDate
-    ) {
-      alert(
-        `A validade deve ser ${calculateExpiryDate(
-          issueDate
-        )}, considerando a regra de 1 ano menos 1 dia.`
-      );
-
-      return;
-    }
-
-    onSave(item.key, {
-      files,
-      issueDate,
-      expiryDate,
-      notAvailable: mandatory
-        ? false
-        : notAvailable,
-    });
-  }
 
   function handleIssueDateChange(value) {
     setIssueDate(value);
 
     if (item.expires && value) {
       setExpiryDate(calculateExpiryDate(value));
-    } else {
-      setExpiryDate("");
     }
   }
 
+  function handleFiles(event) {
+    const selected = Array.from(event.target.files || []);
+
+    if (!selected.length) return;
+
+    if (item.multiple) {
+      setFileObjects((current) => [...current, ...selected]);
+    } else {
+      setFileObjects([selected[0]]);
+    }
+
+    setNotAvailable(false);
+  }
+
+  function removeSelectedFile(index) {
+    setFileObjects((current) =>
+      current.filter((_file, fileIndex) => fileIndex !== index)
+    );
+  }
+
+  async function handleSave() {
+    setMessage("");
+
+    if (item.required && !files.length && !fileObjects.length) {
+      setMessage("Este documento é obrigatório.");
+      return;
+    }
+
+    if (!item.required && !files.length && !fileObjects.length && !notAvailable) {
+      setMessage(
+        'Envie o documento ou marque "Não possuímos essa documentação".'
+      );
+      return;
+    }
+
+    if (item.expires && (files.length || fileObjects.length)) {
+      if (!issueDate) {
+        setMessage("Informe a data de emissão.");
+        return;
+      }
+
+      const expectedExpiry = calculateExpiryDate(issueDate);
+
+      if (expiryDate !== expectedExpiry) {
+        setMessage(
+          `A validade deve ser ${formatDate(expectedExpiry)}.`
+        );
+        return;
+      }
+    }
+
+    const success = await onSave({
+      files,
+      fileObjects,
+      issue_date: issueDate,
+      expiry_date: expiryDate,
+      not_available: notAvailable,
+    });
+
+    if (success !== false) {
+      setFileObjects([]);
+    }
+  }
+
+  const status =
+    document?.expiry_date && item.expires
+      ? expiryStatus(document.expiry_date)
+      : null;
+
+  const rejected =
+    document?.review_status === "rejected";
+
   return (
-    <div className="document-card">
+    <article className="document-card">
       <div className="document-top">
         <div className="document-title">
           <div className="document-icon">
-            <FileText size={21} />
+            {item.type === "fotos_local" ? (
+              <ImageIcon size={21} />
+            ) : (
+              <FileText size={21} />
+            )}
           </div>
 
           <div>
             <h3>
-              {item.label}
-
-              {mandatory && (
-                <span className="required-mark">
-                  {" "}
-                  *
-                </span>
-              )}
+              {item.label}{" "}
+              {item.required && <span className="required-mark">*</span>}
             </h3>
 
-            {item.description && (
-              <p>{item.description}</p>
-            )}
+            <p>{item.description}</p>
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
-          }}
-        >
-          <StatusBadge status={status} />
-
-          {document?.review_status === "approved" && (
-            <ReviewBadge status="approved" />
-          )}
-
-          {document?.review_status === "rejected" && (
-            <ReviewBadge status="rejected" />
-          )}
-        </div>
+        {status && (
+          <span className={`status-badge ${status.className}`}>
+            {status.label}
+          </span>
+        )}
       </div>
 
       <div className="document-body">
-        {document?.review_status === "rejected" &&
-          document?.review_notes && (
-            <div className="alert error">
-              <strong>Observação da Budel:</strong>
-              <br />
-              {document.review_notes}
+        {rejected && (
+          <div className="notice-card warning">
+            <AlertCircle size={18} />
+
+            <div>
+              <strong>Documento rejeitado</strong>
+
+              {document.review_notes && (
+                <p>{document.review_notes}</p>
+              )}
+
+              <p>Envie uma nova versão para análise.</p>
             </div>
-          )}
+          </div>
+        )}
 
         <label className="upload-area">
-          <Upload size={24} />
+          <Upload size={25} />
 
-          <strong>
-            {files.length > 0
-              ? `${files.length} arquivo(s) selecionado(s)`
-              : existingFilesCount > 0
-              ? `${existingFilesCount} arquivo(s) enviado(s)`
-              : "Clique para selecionar os documentos"}
-          </strong>
-
-          <span>
-            Você pode selecionar vários arquivos
-          </span>
+          {fileObjects.length ? (
+            <>
+              <strong>
+                {fileObjects.length} arquivo(s) selecionado(s)
+              </strong>
+              <span>Clique para alterar</span>
+            </>
+          ) : files.length ? (
+            <>
+              <strong>
+                {files.length} arquivo(s) já enviado(s)
+              </strong>
+              <span>Clique para adicionar/substituir</span>
+            </>
+          ) : (
+            <>
+              <strong>
+                Clique para selecionar {item.multiple ? "os arquivos" : "o arquivo"}
+              </strong>
+              <span>PDF, JPG, PNG ou outro formato permitido</span>
+            </>
+          )}
 
           <input
             type="file"
-            multiple
-            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-            onChange={(e) => {
-              setFiles(
-                Array.from(e.target.files || [])
-              );
-            }}
-            disabled={notAvailable}
+            multiple={Boolean(item.multiple)}
+            onChange={handleFiles}
           />
         </label>
 
-        {files.length > 0 && (
+        {fileObjects.length > 0 && (
           <div className="selected-files">
-            {files.map((file, index) => (
-              <div
-                className="selected-file"
-                key={`${file.name}-${file.size}-${index}`}
-              >
+            {fileObjects.map((file, index) => (
+              <div className="selected-file" key={`${file.name}-${index}`}>
                 <FileText size={16} />
+                <span>{file.name}</span>
 
-                <span>
-                  {file.name}
-                </span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => removeSelectedFile(index)}
+                >
+                  <X size={15} />
+                </button>
               </div>
             ))}
           </div>
         )}
 
-        <div className="date-fields">
-          <label>
-            Data de emissão
+        {files.length > 0 && (
+          <div className="selected-files">
+            {files.map((file, index) => (
+              <div className="selected-file" key={`${file.path}-${index}`}>
+                <FileText size={16} />
+                <span>{file.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
-            <input
-              type="date"
-              value={issueDate}
-              onChange={(e) =>
-                handleIssueDateChange(e.target.value)
-              }
-              disabled={notAvailable}
-            />
-          </label>
+        {item.expires && (
+          <div className="date-fields">
+            <label>
+              Data de emissão
+              <input
+                type="date"
+                value={issueDate}
+                onChange={(event) =>
+                  handleIssueDateChange(event.target.value)
+                }
+              />
+            </label>
 
-          <label>
-            Data de validade
+            <label>
+              Data de validade
+              <input
+                type="date"
+                value={expiryDate}
+                readOnly
+              />
+            </label>
+          </div>
+        )}
 
-            <input
-              type="date"
-              value={expiryDate}
-              readOnly
-              disabled={
-                notAvailable ||
-                !item.expires
-              }
-            />
-          </label>
-        </div>
+        {item.expires && issueDate && (
+          <div className="required-document-notice">
+            <Info size={15} />
+            A validade é calculada automaticamente como 1 ano menos 1 dia
+            após a emissão.
+          </div>
+        )}
 
-        {!mandatory && (
+        {!item.required && (
           <label className="checkbox-label">
             <input
               type="checkbox"
               checked={notAvailable}
-              onChange={(e) => {
-                const checked = e.target.checked;
+              onChange={(event) => {
+                setNotAvailable(event.target.checked);
 
-                setNotAvailable(checked);
-
-                if (checked) {
-                  setFiles([]);
-                  setExpiryDate("");
-                  setIssueDate("");
+                if (event.target.checked) {
+                  setFileObjects([]);
                 }
               }}
             />
 
-            <span>
-              Não possuímos essa documentação
-            </span>
+            Não possuímos essa documentação
           </label>
         )}
 
-        {mandatory && (
+        {item.required && (
           <div className="required-document-notice">
-            <AlertCircle size={16} />
+            <Info size={15} />
+            Este documento é obrigatório.
+          </div>
+        )}
 
-            <span>
-              Documento obrigatório para a homologação.
-            </span>
+        {message && (
+          <div className="form-message error">
+            {message}
           </div>
         )}
 
         <div className="document-actions">
-          {existingFilesCount > 0 &&
-            !notAvailable && (
-              <button
-                type="button"
-                className="secondary-button small-button"
-                onClick={() =>
-                  onOpen(document)
-                }
-              >
-                <FileText size={16} />
-                Ver documento
-              </button>
-            )}
+          {item.type === "checklist" && (
+            <a
+              className="secondary-button small-button"
+              href="/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx"
+              download
+            >
+              <Download size={16} />
+              Baixar F103-04
+            </a>
+          )}
 
           <button
-            type="button"
-            className="primary-button small-button"
-            onClick={save}
+            className="secondary-button small-button"
+            onClick={handleSave}
             disabled={saving}
           >
-            {saving
-              ? "Salvando..."
-              : document?.review_status === "rejected"
-              ? "Enviar novo documento"
-              : "Salvar documento"}
+            {saving ? (
+              <>
+                <RefreshCw size={15} className="spin" />
+                Salvando...
+              </>
+            ) : (
+              <>
+                <Save size={15} />
+                Salvar documento
+              </>
+            )}
           </button>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
 
-/* =========================================================
-   CADASTRO DE ADMINISTRADOR
-   ========================================================= */
+function AdminDashboard({ session, adminProfile, onOpenCompany }) {
+  const [companies, setCompanies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
 
-function CreateAdminForm({ onClose }) {
+  const canManageUsers = adminCanManageUsers(adminProfile);
+  const canReview = adminCanReview(adminProfile);
+  const viewOnly = adminIsViewOnly(adminProfile);
+
+  async function loadCompanies() {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("companies")
+      .select("*")
+      .neq("submission_status", "draft")
+      .order("submitted_at", {
+        ascending: false,
+        nullsFirst: false,
+      });
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    const visible = (data || []).filter((company) =>
+      adminCanViewCompany(adminProfile, company.modality)
+    );
+
+    setCompanies(visible);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadCompanies();
+  }, [
+    adminProfile?.id,
+    adminProfile?.admin_keywords,
+    adminProfile?.admin_can_manage_users,
+  ]);
+
+  function exportExcel() {
+    const rows = companies.map((company) => ({
+      "Razão Social": company.legal_name,
+      CNPJ: formatCnpj(company.cnpj),
+      "Serviço/atividade": company.modality || "",
+      Status: getCompanyStatusLabel(company.submission_status),
+      "Data de envio": formatDate(
+        company.submitted_at?.slice(0, 10)
+      ),
+      "Data de análise": formatDate(
+        company.reviewed_at?.slice(0, 10)
+      ),
+      Observação: company.review_notes || "",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "Homologação"
+    );
+
+    XLSX.writeFile(
+      workbook,
+      `relatorio-homologacao-${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`
+    );
+  }
+
+  return (
+    <main className="page">
+      <div className="dashboard-heading">
+        <div>
+          <div className="section-kicker">Área administrativa</div>
+          <h1>Homologação de fornecedores</h1>
+          <p>
+            Empresas que já foram enviadas para análise.
+          </p>
+        </div>
+
+        <div className="dashboard-actions">
+          <button
+            className="secondary-button"
+            onClick={exportExcel}
+            disabled={!companies.length}
+          >
+            <FileDown size={17} />
+            Exportar para Excel
+          </button>
+
+          {canManageUsers && (
+            <button
+              className="secondary-button"
+              onClick={() => setShowCreateAdmin(true)}
+            >
+              <UserPlus size={17} />
+              Cadastrar administrador
+            </button>
+          )}
+        </div>
+      </div>
+
+      {viewOnly && (
+        <div className="notice-card info">
+          <Eye size={19} />
+          <div>
+            <strong>Modo somente visualização</strong>
+            <p>
+              Você pode consultar as empresas e documentos, mas não pode
+              aprovar ou rejeitar.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!canReview && !viewOnly && (
+        <div className="notice-card info">
+          <KeyRound size={19} />
+          <div>
+            <strong>Acesso por categoria</strong>
+            <p>
+              Você visualiza as empresas relacionadas às palavras-chave
+              cadastradas no seu perfil.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {message && (
+        <div className="form-message error">
+          {message}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="loading-box">
+          <RefreshCw size={22} className="spin" />
+          Carregando empresas...
+        </div>
+      ) : companies.length === 0 ? (
+        <div className="empty-state">
+          <ClipboardCheck size={38} />
+          <h2>Nenhuma empresa disponível</h2>
+          <p>
+            No momento não há empresas enviadas para homologação dentro do
+            seu acesso.
+          </p>
+        </div>
+      ) : (
+        <div className="company-grid">
+          {companies.map((company) => (
+            <button
+              key={company.id}
+              className="company-card company-card-main admin-company-card"
+              onClick={() => onOpenCompany(company)}
+            >
+              <div className="company-icon">
+                <FileCheck2 size={23} />
+              </div>
+
+              <div className="company-content">
+                <h2>{company.legal_name}</h2>
+
+                <p>{formatCnpj(company.cnpj)}</p>
+
+                <div className="company-modality">
+                  {company.modality || "Serviço/atividade não informado"}
+                </div>
+
+                <div className="company-card-status">
+                  <StatusBadge
+                    status={company.submission_status}
+                    label={getCompanyStatusLabel(company.submission_status)}
+                  />
+                </div>
+              </div>
+
+              <ChevronRight size={20} className="company-arrow" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showCreateAdmin && (
+        <CreateAdminForm
+          onClose={() => setShowCreateAdmin(false)}
+          onCreated={() => setShowCreateAdmin(false)}
+        />
+      )}
+    </main>
+  );
+}
+
+function CreateAdminForm({ onClose, onCreated }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [keywords, setKeywords] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  async function submit(e) {
-    e.preventDefault();
+  async function handleCreate(event) {
+    event.preventDefault();
 
     setLoading(true);
-    setError("");
     setMessage("");
 
-    try {
-      if (!name.trim()) {
-        throw new Error("Informe o nome do administrador.");
+    const { data, error } = await supabase.functions.invoke(
+      "create-admin",
+      {
+        body: {
+          name: name.trim(),
+          email: email.trim(),
+          keywords: keywords.trim(),
+        },
       }
+    );
 
-      if (!email.trim()) {
-        throw new Error("Informe o e-mail do administrador.");
-      }
-
-      const { data, error } = await supabase.functions.invoke(
-        "create-admin",
-        {
-          body: {
-            name: name.trim(),
-            email: email.trim(),
-            keywords: keywords.trim(),
-          },
-        }
-      );
-
-      if (error) {
-        throw error;
-      }
-
-      if (data?.error) {
-        throw new Error(data.error);
-      }
-
-      setMessage(
-        "Administrador criado com sucesso. Um convite foi enviado para o e-mail informado."
-      );
-
-      setName("");
-      setEmail("");
-      setKeywords("");
-    } catch (err) {
-      setError(
-        err.message ||
-          "Não foi possível cadastrar o administrador."
-      );
-    } finally {
+    if (error) {
+      setMessage(error.message || "Não foi possível cadastrar o administrador.");
       setLoading(false);
+      return;
     }
+
+    if (data?.error) {
+      setMessage(data.error);
+      setLoading(false);
+      return;
+    }
+
+    alert(
+      "Administrador cadastrado. Um convite foi enviado para o e-mail informado."
+    );
+
+    setLoading(false);
+    onCreated();
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.45)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "20px",
-        zIndex: 1000,
-      }}
-      onClick={onClose}
-    >
-      <div
-        className="auth-card"
-        style={{
-          width: "100%",
-          maxWidth: "560px",
-          maxHeight: "90vh",
-          overflowY: "auto",
-          position: "relative",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          className="back-button"
-          onClick={onClose}
-          style={{
-            position: "absolute",
-            top: "18px",
-            right: "18px",
-          }}
-        >
-          <XCircle size={17} />
-          Fechar
+    <div className="admin-modal-overlay">
+      <div className="admin-modal">
+        <button className="modal-close admin-modal-close" onClick={onClose}>
+          <X size={20} />
         </button>
 
-        <span className="eyebrow">
-          ADMINISTRAÇÃO
-        </span>
+        <div className="modal-heading">
+          <div className="modal-icon">
+            <UserPlus size={20} />
+          </div>
 
-        <h1>Cadastrar administrador</h1>
+          <div>
+            <h2>Cadastrar administrador</h2>
+            <p>
+              Defina o nível de acesso que esse administrador terá.
+            </p>
+          </div>
+        </div>
 
-        <p className="muted">
-          Crie um acesso administrativo e defina quais empresas essa pessoa
-          poderá visualizar e analisar.
-        </p>
-
-        <form onSubmit={submit}>
+        <form onSubmit={handleCreate} className="form">
           <label>
             Nome
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(event) => setName(event.target.value)}
               placeholder="Nome do administrador"
               required
             />
@@ -1783,8 +1979,8 @@ function CreateAdminForm({ onClose }) {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="administrador@email.com"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="email@empresa.com.br"
               required
             />
           </label>
@@ -1793,30 +1989,26 @@ function CreateAdminForm({ onClose }) {
             Categoria de palavras-chave
             <input
               value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
+              onChange={(event) => setKeywords(event.target.value)}
               placeholder="Ex.: LAVAGEM, VAPOR, EXAUSTOR"
             />
           </label>
 
-          <div
-            className="required-document-notice"
-            style={{
-              display: "grid",
-              gap: "5px",
-            }}
-          >
+          <div className="admin-permission-box">
             <strong>Como funciona:</strong>
 
             <span>
-              • Campo vazio: acesso completo, podendo visualizar e aprovar/reprovar tudo.
+              • Campo em branco: acesso para visualizar e analisar tudo.
             </span>
 
             <span>
-              • VISUALIZAR: pode visualizar tudo, mas não pode aprovar/reprovar.
+              • VISUALIZAR: pode visualizar tudo, mas não pode aprovar ou
+              rejeitar.
             </span>
 
             <span>
-              • Palavras-chave: poderá visualizar e analisar somente empresas cujo serviço/atividade contenha uma das palavras informadas.
+              • Palavras-chave: poderá visualizar e analisar apenas empresas
+              cujo serviço/atividade contenha uma das palavras informadas.
             </span>
 
             <span>
@@ -1824,14 +2016,8 @@ function CreateAdminForm({ onClose }) {
             </span>
           </div>
 
-          {error && (
-            <div className="alert error">
-              {error}
-            </div>
-          )}
-
           {message && (
-            <div className="alert success">
+            <div className="form-message error">
               {message}
             </div>
           )}
@@ -1842,17 +2028,25 @@ function CreateAdminForm({ onClose }) {
               className="secondary-button"
               onClick={onClose}
             >
-              Fechar
+              Cancelar
             </button>
 
             <button
+              type="submit"
               className="primary-button"
               disabled={loading}
             >
-              <UserPlus size={18} />
-              {loading
-                ? "Cadastrando..."
-                : "Cadastrar administrador"}
+              {loading ? (
+                <>
+                  <RefreshCw size={16} className="spin" />
+                  Cadastrando...
+                </>
+              ) : (
+                <>
+                  <Send size={16} />
+                  Cadastrar administrador
+                </>
+              )}
             </button>
           </div>
         </form>
@@ -1861,495 +2055,34 @@ function CreateAdminForm({ onClose }) {
   );
 }
 
-/* =========================================================
-   ÁREA ADMINISTRATIVA / BUDEL
-   ========================================================= */
-
-function AdminDashboard({
-  onBack,
-  adminProfile,
-}) {
-  const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [selectedCompany, setSelectedCompany] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
-
-  const canReview = adminCanReview(adminProfile);
-  const canManageUsers = adminCanManageUsers(adminProfile);
-  const viewOnly = adminIsViewOnly(adminProfile);
-
-  async function loadCompanies() {
-    setLoading(true);
-    setError("");
-
-    /*
-      O RLS do Supabase impede que CNPJs em draft
-      cheguem até este usuário.
-
-      Aqui também filtramos draft para manter a regra
-      explícita no frontend.
-    */
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .neq("submission_status", "draft")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      setError(error.message);
-    } else {
-      setCompanies(data || []);
-    }
-
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    loadCompanies();
-  }, []);
-
-  async function exportToExcel() {
-    setExporting(true);
-    setError("");
-
-    try {
-      const { data: companiesData, error: companiesError } =
-        await supabase
-          .from("companies")
-          .select("*")
-          .neq("submission_status", "draft")
-          .order("created_at", { ascending: false });
-
-      if (companiesError) {
-        throw companiesError;
-      }
-
-      const visibleCompanies = (companiesData || []).filter(
-        (company) =>
-          adminCanViewCompany(company, adminProfile)
-      );
-
-      const companyIds = visibleCompanies.map(
-        (company) => company.id
-      );
-
-      const { data: documentsData, error: documentsError } =
-        companyIds.length > 0
-          ? await supabase
-              .from("documents")
-              .select("*")
-              .in("company_id", companyIds)
-          : { data: [], error: null };
-
-      if (documentsError) {
-        throw documentsError;
-      }
-
-      const rows = visibleCompanies.map((company) => {
-        const companyDocs = (documentsData || []).filter(
-          (doc) => doc.company_id === company.id
-        );
-
-        const row = {
-          "Razão Social": company.legal_name || "",
-          CNPJ: formatCnpj(company.cnpj || ""),
-          "Serviço/atividade": company.modality || "",
-          "Situação da homologação":
-            company.submission_status === "approved"
-              ? "Aprovada"
-              : company.submission_status === "rejected"
-              ? "Reprovada"
-              : "Em análise",
-          "Data do envio": company.submitted_at
-            ? new Date(
-                company.submitted_at
-              ).toLocaleDateString("pt-BR")
-            : "",
-          "Observação geral da Budel":
-            company.review_notes || "",
-        };
-
-        documentTypes.forEach((item) => {
-          const doc = companyDocs.find(
-            (document) => document.type === item.key
-          );
-
-          const status = documentStatus(doc);
-
-          row[`${item.label} - Situação`] =
-            doc?.not_available
-              ? "Não possui"
-              : statusLabel(status);
-
-          row[`${item.label} - Análise`] =
-            reviewLabel(doc?.review_status);
-
-          row[`${item.label} - Validade`] =
-            doc?.expiry_date
-              ? new Date(
-                  `${doc.expiry_date}T00:00:00`
-                ).toLocaleDateString("pt-BR")
-              : "";
-
-          const files = Array.isArray(doc?.files)
-            ? doc.files
-            : doc?.file_path
-            ? [
-                {
-                  name:
-                    doc.original_name ||
-                    "Documento",
-                },
-              ]
-            : [];
-
-          row[`${item.label} - Arquivos`] =
-            files.map((file) => file.name).join(" | ");
-
-          row[`${item.label} - Observação`] =
-            doc?.review_notes || "";
-        });
-
-        return row;
-      });
-
-      const worksheet =
-        XLSX.utils.json_to_sheet(rows);
-
-      const workbook =
-        XLSX.utils.book_new();
-
-      XLSX.utils.book_append_sheet(
-        workbook,
-        worksheet,
-        "Homologações"
-      );
-
-      worksheet["!cols"] = [
-        { wch: 32 },
-        { wch: 20 },
-        { wch: 38 },
-        { wch: 20 },
-        { wch: 15 },
-        { wch: 40 },
-      ];
-
-      XLSX.writeFile(
-        workbook,
-        `Relatorio_Homologacao_Budel_${today()}.xlsx`
-      );
-    } catch (err) {
-      setError(
-        err.message ||
-          "Não foi possível exportar o relatório."
-      );
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  if (selectedCompany) {
-    return (
-      <main className="page">
-        <AdminCompanyPage
-          company={selectedCompany}
-          adminProfile={adminProfile}
-          canReview={canReview}
-          onBack={() => {
-            setSelectedCompany(null);
-            loadCompanies();
-          }}
-        />
-      </main>
-    );
-  }
-
-  return (
-    <main className="page">
-      <div className="dashboard-heading">
-        <div>
-          <span className="eyebrow">ADMINISTRATIVO</span>
-
-          <h1>Homologação de Fornecedores</h1>
-
-          <p className="muted">
-            {viewOnly
-              ? "Visualização dos fornecedores enviados para homologação."
-              : "Visualize e analise os fornecedores enviados para homologação."}
-          </p>
-
-          {!adminProfile.admin_can_manage_users &&
-            adminProfile.admin_keywords &&
-            !viewOnly && (
-              <p
-                className="muted"
-                style={{ marginTop: "8px" }}
-              >
-                Filtro de acesso:{" "}
-                <strong>
-                  {adminProfile.admin_keywords}
-                </strong>
-              </p>
-            )}
-
-          {viewOnly && (
-            <p
-              className="muted"
-              style={{ marginTop: "8px" }}
-            >
-              Este acesso possui somente permissão de visualização.
-            </p>
-          )}
-        </div>
-
-        <div className="header-actions">
-          {canManageUsers && (
-            <button
-              className="secondary-button"
-              onClick={() =>
-                setShowCreateAdmin(true)
-              }
-            >
-              <UserPlus size={18} />
-              Cadastrar administrador
-            </button>
-          )}
-
-          <button
-            className="secondary-button"
-            onClick={exportToExcel}
-            disabled={exporting}
-          >
-            <FileSpreadsheet size={18} />
-
-            {exporting
-              ? "Gerando Excel..."
-              : "Exportar para Excel"}
-          </button>
-        </div>
-      </div>
-
-      <div className="summary-grid">
-        <div>
-          <strong>{companies.length}</strong>
-          <span>Total de CNPJs</span>
-        </div>
-
-        <div>
-          <strong>
-            {
-              companies.filter(
-                (company) =>
-                  company.submission_status === "submitted"
-              ).length
-            }
-          </strong>
-          <span>Em análise</span>
-        </div>
-
-        <div>
-          <strong>
-            {
-              companies.filter(
-                (company) =>
-                  company.submission_status === "approved"
-              ).length
-            }
-          </strong>
-          <span>Aprovados</span>
-        </div>
-
-        <div>
-          <strong>
-            {
-              companies.filter(
-                (company) =>
-                  company.submission_status === "rejected"
-              ).length
-            }
-          </strong>
-          <span>Reprovados</span>
-        </div>
-      </div>
-
-      {error && (
-        <div className="alert error">
-          {error}
-        </div>
-      )}
-
-      <div className="documents-header">
-        <div>
-          <h2>Fornecedores</h2>
-
-          <p className="muted">
-            Clique em uma empresa para visualizar a documentação enviada.
-          </p>
-        </div>
-
-        <button
-          className="back-button"
-          onClick={onBack}
-        >
-          <ArrowLeft size={17} />
-          Voltar
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="loading-box">
-          Carregando fornecedores...
-        </div>
-      ) : companies.length === 0 ? (
-        <div className="empty-box">
-          <Building2 size={40} />
-
-          <h2>Nenhum fornecedor enviado</h2>
-
-          <p>
-            Quando os fornecedores enviarem seus CNPJs para homologação,
-            eles aparecerão aqui.
-          </p>
-        </div>
-      ) : (
-        <div className="company-grid">
-          {companies.map((company) => (
-            <AdminCompanyCard
-              key={company.id}
-              company={company}
-              onClick={() =>
-                setSelectedCompany(company)
-              }
-            />
-          ))}
-        </div>
-      )}
-
-      {showCreateAdmin && (
-        <CreateAdminForm
-          onClose={() =>
-            setShowCreateAdmin(false)
-          }
-        />
-      )}
-    </main>
-  );
-}
-
-function AdminCompanyCard({
-  company,
-  onClick,
-}) {
-  const status =
-    company.submission_status === "approved"
-      ? "approved"
-      : company.submission_status === "rejected"
-      ? "rejected"
-      : "pending";
-
-  return (
-    <button
-      type="button"
-      className="company-card-main"
-      onClick={onClick}
-      style={{
-        background: "#ffffff",
-        border: "1px solid #e8e8e8",
-        borderRadius: "16px",
-        padding: "22px",
-        width: "100%",
-        minHeight: "220px",
-        textAlign: "left",
-        color: "inherit",
-        display: "flex",
-        alignItems: "flex-start",
-        gap: "16px",
-        cursor: "pointer",
-      }}
-    >
-      <div className="company-icon">
-        <Building2 size={25} />
-      </div>
-
-      <div className="company-content">
-        <h2>{company.legal_name}</h2>
-
-        <p>
-          CNPJ: {formatCnpj(company.cnpj)}
-        </p>
-
-        <span className="company-modality">
-          {company.modality || "Serviço não informado"}
-        </span>
-
-        <div
-          style={{
-            marginTop: "12px",
-            display: "flex",
-            gap: "8px",
-            flexWrap: "wrap",
-          }}
-        >
-          <ReviewBadge status={status} />
-
-          <span className="status-badge status-pending">
-            {companyStatusLabel(
-              company.submission_status
-            )}
-          </span>
-        </div>
-      </div>
-
-      <div className="company-arrow">›</div>
-    </button>
-  );
-}
-
-/* =========================================================
-   DETALHES DO CNPJ PARA A BUDEL
-   ========================================================= */
-
 function AdminCompanyPage({
+  session,
   company,
-  onBack,
   adminProfile,
-  canReview,
+  onBack,
 }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [reviewNotes, setReviewNotes] = useState(
+    company.review_notes || ""
+  );
+  const [savingCompany, setSavingCompany] = useState(false);
 
-  const [saving, setSaving] = useState({});
-
-  const [companyStatus, setCompanyStatus] =
-    useState(
-      company.submission_status || "submitted"
-    );
-
-  const [companyNotes, setCompanyNotes] =
-    useState(
-      company.review_notes || ""
-    );
-
+  const canReview = adminCanReview(adminProfile);
   const viewOnly = adminIsViewOnly(adminProfile);
 
   async function loadDocuments() {
     setLoading(true);
-    setError("");
 
     const { data, error } = await supabase
       .from("documents")
       .select("*")
       .eq("company_id", company.id)
-      .order("created_at", {
-        ascending: true,
-      });
+      .order("created_at", { ascending: true });
 
     if (error) {
-      setError(error.message);
+      setMessage(error.message);
     } else {
       setDocuments(data || []);
     }
@@ -2361,1067 +2094,427 @@ function AdminCompanyPage({
     loadDocuments();
   }, [company.id]);
 
-  const documentMap = useMemo(() => {
-    return Object.fromEntries(
-      documents.map((doc) => [
-        doc.type,
-        doc,
-      ])
-    );
-  }, [documents]);
+  async function updateDocumentReview(document, reviewStatus, notes) {
+    if (!canReview) return;
 
-  async function openFiles(doc) {
-    if (!doc) return;
+    const { error } = await supabase
+      .from("documents")
+      .update({
+        review_status: reviewStatus,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: session.user.id,
+        review_notes: notes || null,
+      })
+      .eq("id", document.id);
 
-    let files = Array.isArray(doc.files)
-      ? doc.files
-      : [];
-
-    if (
-      files.length === 0 &&
-      doc.file_path
-    ) {
-      files = [
-        {
-          path: doc.file_path,
-          name:
-            doc.original_name ||
-            "Documento",
-        },
-      ];
-    }
-
-    if (files.length === 0) {
-      setError(
-        "Nenhum arquivo encontrado."
-      );
+    if (error) {
+      setMessage(error.message);
       return;
     }
 
-    for (const file of files) {
-      if (!file?.path) continue;
-
-      const {
-        data,
-        error,
-      } = await supabase.storage
-        .from("supplier-documents")
-        .createSignedUrl(
-          file.path,
-          600
-        );
-
-      if (error) {
-        setError(error.message);
-        continue;
-      }
-
-      window.open(
-        data.signedUrl,
-        "_blank"
-      );
-    }
+    await loadDocuments();
   }
 
-  async function reviewDocument(
-    doc,
-    reviewStatus,
-    notes
-  ) {
-    if (!doc || !canReview) return;
-
-    setSaving((current) => ({
-      ...current,
-      [doc.type]: true,
-    }));
-
-    setError("");
-    setMessage("");
-
-    try {
-      const {
-        data: { user },
-      } =
-        await supabase.auth.getUser();
-
-      if (!user) {
-        throw new Error(
-          "Sua sessão expirou. Entre novamente."
-        );
-      }
-
-      const {
-        data,
-        error,
-      } = await supabase
-        .from("documents")
-        .update({
-          review_status:
-            reviewStatus,
-          review_notes:
-            notes || null,
-          reviewed_at:
-            new Date().toISOString(),
-          reviewed_by: user.id,
-        })
-        .eq("id", doc.id)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      setDocuments((current) =>
-        current.map((item) =>
-          item.id === doc.id
-            ? data
-            : item
-        )
-      );
-
-      if (reviewStatus === "rejected") {
-        const {
-          error: companyError,
-        } = await supabase
-          .from("companies")
-          .update({
-            submission_status:
-              "rejected",
-            review_notes:
-              "Existem documentos reprovados. Consulte as observações.",
-          })
-          .eq("id", company.id);
-
-        if (companyError) {
-          throw companyError;
-        }
-
-        setCompanyStatus("rejected");
-      }
-
-      setMessage(
-        reviewStatus === "approved"
-          ? "Documento aprovado com sucesso."
-          : "Documento reprovado. A observação foi salva."
-      );
-    } catch (err) {
-      setError(
-        err.message ||
-          "Não foi possível salvar a análise."
-      );
-    } finally {
-      setSaving((current) => ({
-        ...current,
-        [doc.type]: false,
-      }));
-    }
-  }
-
-  async function reviewCompany(
-    status
-  ) {
+  async function updateCompanyStatus(status) {
     if (!canReview) return;
 
-    setError("");
+    setSavingCompany(true);
     setMessage("");
 
-    try {
-      const {
-        data: { user },
-      } =
-        await supabase.auth.getUser();
+    const { data, error } = await supabase
+      .from("companies")
+      .update({
+        submission_status: status,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: session.user.id,
+        review_notes: reviewNotes.trim() || null,
+      })
+      .eq("id", company.id)
+      .select()
+      .single();
 
-      if (!user) {
-        throw new Error(
-          "Sua sessão expirou. Entre novamente."
-        );
-      }
+    if (error) {
+      setMessage(error.message);
+      setSavingCompany(false);
+      return;
+    }
 
-      if (status === "approved") {
-        const missingRequired =
-          documentTypes.filter(
-            (item) => {
-              const doc =
-                documentMap[item.key];
+    Object.assign(company, data);
 
-              return (
-                isMandatoryDocument(
-                  item.key
-                ) &&
-                !hasDocumentFiles(doc)
-              );
-            }
-          );
+    setSavingCompany(false);
 
-        if (
-          missingRequired.length > 0
-        ) {
-          setError(
-            `Não é possível aprovar a empresa enquanto houver ${missingRequired.length} documento(s) obrigatório(s) sem arquivo.`
-          );
-
-          return;
-        }
-
-        const rejected =
-          documents.filter(
-            (doc) =>
-              doc.review_status ===
-              "rejected"
-          );
-
-        if (rejected.length > 0) {
-          setError(
-            "Existem documentos reprovados. Corrija ou reavalie os documentos antes de aprovar a homologação."
-          );
-
-          return;
-        }
-      }
-
-      const {
-        error,
-      } = await supabase
-        .from("companies")
-        .update({
-          submission_status:
-            status,
-          reviewed_at:
-            new Date().toISOString(),
-          reviewed_by:
-            user.id,
-          review_notes:
-            companyNotes || null,
-        })
-        .eq(
-          "id",
-          company.id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      setCompanyStatus(status);
-
-      setMessage(
-        status === "approved"
-          ? "Homologação da empresa aprovada."
-          : "Homologação da empresa reprovada."
-      );
-    } catch (err) {
-      setError(
-        err.message ||
-          "Não foi possível salvar a situação da empresa."
-      );
+    if (status === "approved") {
+      setMessage("Fornecedor homologado com sucesso.");
+    } else {
+      setMessage("Fornecedor marcado para correções.");
     }
   }
 
-  const approvedDocuments =
-    documents.filter(
-      (doc) =>
-        doc.review_status ===
-        "approved"
-    ).length;
-
-  const rejectedDocuments =
-    documents.filter(
-      (doc) =>
-        doc.review_status ===
-        "rejected"
-    ).length;
-
-  const pendingDocuments =
-    documentTypes.length -
-    approvedDocuments -
-    rejectedDocuments;
-
   return (
-    <div>
-      <button
-        className="back-button"
-        onClick={onBack}
-      >
-        <ArrowLeft size={17} />
-        Voltar para fornecedores
-      </button>
-
-      <div className="company-header">
+    <main className="page">
+      <div className="dashboard-heading">
         <div>
-          <span className="eyebrow">
-            ANÁLISE DA BUDEL
-          </span>
+          <button className="back-button" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Voltar
+          </button>
 
-          <h1>
-            {company.legal_name}
-          </h1>
+          <div className="section-kicker">Análise de fornecedor</div>
+
+          <h1>{company.legal_name}</h1>
 
           <p>
-            CNPJ:{" "}
-            {formatCnpj(
-              company.cnpj
-            )}
+            CNPJ: {formatCnpj(company.cnpj)}
+            <br />
+            Serviço/atividade:{" "}
+            {company.modality || "Não informado"}
           </p>
-
-          <span className="company-modality">
-            {company.modality}
-          </span>
         </div>
 
-        <span className="status-badge status-pending">
-          {companyStatusLabel(
-            companyStatus
-          )}
-        </span>
+        <StatusBadge
+          status={company.submission_status}
+          label={getCompanyStatusLabel(company.submission_status)}
+        />
       </div>
 
       {viewOnly && (
-        <div className="alert success">
-          <Eye size={16} />
-          {" "}
-          Este administrador possui somente permissão de visualização.
+        <div className="notice-card info">
+          <Eye size={19} />
+
+          <div>
+            <strong>Somente visualização</strong>
+            <p>
+              Você possui acesso aos documentos, mas não pode aprovar ou
+              rejeitar.
+            </p>
+          </div>
         </div>
       )}
 
-      <div className="summary-grid">
-        <div>
-          <strong>
-            {documents.length}
-          </strong>
-          <span>
-            Documentos enviados
-          </span>
-        </div>
-
-        <div>
-          <strong>
-            {approvedDocuments}
-          </strong>
-          <span>
-            Aprovados
-          </span>
-        </div>
-
-        <div>
-          <strong>
-            {rejectedDocuments}
-          </strong>
-          <span>
-            Reprovados
-          </span>
-        </div>
-
-        <div>
-          <strong>
-            {Math.max(
-              0,
-              pendingDocuments
-            )}
-          </strong>
-          <span>
-            Em análise
-          </span>
-        </div>
-      </div>
-
       {message && (
-        <div className="alert success">
+        <div className="form-message info">
           {message}
         </div>
       )}
 
-      {error && (
-        <div className="alert error">
-          {error}
-        </div>
-      )}
-
-      <div className="documents-header">
-        <div>
-          <h2>
-            Documentação enviada
-          </h2>
-
-          <p className="muted">
-            {canReview
-              ? "Analise cada documento e registre a decisão da Budel."
-              : "Visualize a documentação enviada pelo fornecedor."}
-          </p>
-        </div>
-      </div>
-
       {loading ? (
         <div className="loading-box">
-          Carregando documentação...
+          <RefreshCw size={22} className="spin" />
+          Carregando documentos...
         </div>
       ) : (
         <div className="documents-list">
-          {documentTypes.map(
-            (item) => (
+          {DOCUMENTS.map((item) => {
+            const document = documents.find(
+              (doc) => doc.type === item.type
+            );
+
+            return (
               <AdminDocumentCard
-                key={item.key}
+                key={item.type}
                 item={item}
-                document={
-                  documentMap[
-                    item.key
-                  ]
-                }
-                saving={
-                  saving[
-                    item.key
-                  ]
-                }
-                onOpen={
-                  openFiles
-                }
-                onReview={
-                  reviewDocument
-                }
-                canReview={
-                  canReview
-                }
+                document={document}
+                canReview={canReview}
+                onReview={updateDocumentReview}
               />
-            )
-          )}
+            );
+          })}
         </div>
       )}
 
       {canReview && (
-        <div className="submit-box">
-          <div style={{ flex: 1 }}>
-            <h2>
-              Decisão da homologação
-            </h2>
-
+        <section className="admin-review-panel">
+          <div>
+            <div className="section-kicker">Conclusão</div>
+            <h2>Resultado da homologação</h2>
             <p>
-              Após analisar os documentos, registre a situação final desta
-              empresa.
+              Após analisar a documentação, registre a decisão da Budel.
             </p>
-
-            <label
-              style={{
-                display: "grid",
-                gap: "7px",
-                marginTop: "15px",
-              }}
-            >
-              Observação geral da Budel
-
-              <textarea
-                value={
-                  companyNotes
-                }
-                onChange={(e) =>
-                  setCompanyNotes(
-                    e.target.value
-                  )
-                }
-                placeholder="Digite uma observação geral sobre a homologação..."
-                rows={4}
-                style={{
-                  width: "100%",
-                  resize: "vertical",
-                }}
-              />
-            </label>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: "10px",
-              flexWrap: "wrap",
-            }}
-          >
+          <label>
+            Observação
+            <textarea
+              value={reviewNotes}
+              onChange={(event) => setReviewNotes(event.target.value)}
+              placeholder="Informe observações ou correções necessárias..."
+              rows={5}
+            />
+          </label>
+
+          <div className="form-actions">
             <button
-              className="secondary-button"
-              onClick={() =>
-                reviewCompany(
-                  "rejected"
-                )
-              }
+              className="secondary-button danger-button"
+              onClick={() => updateCompanyStatus("rejected")}
+              disabled={savingCompany}
             >
-              <ShieldX size={18} />
-              Reprovar homologação
+              <X size={17} />
+              Solicitar correções
             </button>
 
             <button
               className="primary-button"
-              onClick={() =>
-                reviewCompany(
-                  "approved"
-                )
-              }
+              onClick={() => updateCompanyStatus("approved")}
+              disabled={savingCompany}
             >
-              <ShieldCheck size={18} />
+              <Check size={17} />
               Aprovar homologação
             </button>
           </div>
-        </div>
+        </section>
       )}
-    </div>
+    </main>
   );
 }
 
 function AdminDocumentCard({
   item,
   document,
-  saving,
-  onOpen,
-  onReview,
   canReview,
+  onReview,
 }) {
-  const [notes, setNotes] =
-    useState(
-      document?.review_notes ||
-        ""
-    );
+  const [notes, setNotes] = useState(
+    document?.review_notes || ""
+  );
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setNotes(
-      document?.review_notes ||
-        ""
-    );
+    setNotes(document?.review_notes || "");
   }, [document]);
 
+  const files = getDocumentFiles(document);
+
   const status =
-    documentStatus(document);
+    item.expires && document?.expiry_date
+      ? expiryStatus(document.expiry_date)
+      : null;
 
-  const reviewStatus =
-    document?.review_status ||
-    "pending";
+  async function review(statusValue) {
+    if (!document || !canReview) return;
 
-  const files =
-    Array.isArray(
-      document?.files
-    )
-      ? document.files
-      : document?.file_path
-      ? [
-          {
-            path:
-              document.file_path,
-            name:
-              document.original_name ||
-              "Documento",
-          },
-        ]
-      : [];
+    setLoading(true);
+
+    await onReview(document, statusValue, notes);
+
+    setLoading(false);
+  }
 
   return (
-    <div className="document-card">
+    <article className="document-card">
       <div className="document-top">
         <div className="document-title">
           <div className="document-icon">
-            <FileText size={21} />
+            {item.type === "fotos_local" ? (
+              <ImageIcon size={21} />
+            ) : (
+              <FileText size={21} />
+            )}
           </div>
 
           <div>
             <h3>
-              {item.label}
-
-              {isMandatoryDocument(
-                item.key
-              ) && (
-                <span className="required-mark">
-                  {" "}
-                  *
-                </span>
+              {item.label}{" "}
+              {item.required && (
+                <span className="required-mark">*</span>
               )}
             </h3>
 
-            {item.description && (
-              <p>
-                {item.description}
-              </p>
-            )}
+            <p>{item.description}</p>
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: "8px",
-            flexWrap: "wrap",
-            justifyContent:
-              "flex-end",
-          }}
-        >
-          <StatusBadge
-            status={status}
-          />
+        <div className="document-status-group">
+          {status && (
+            <span className={`status-badge ${status.className}`}>
+              {status.label}
+            </span>
+          )}
 
-          <ReviewBadge
-            status={
-              reviewStatus
-            }
-          />
+          {document?.review_status && (
+            <span
+              className={`status-badge ${
+                document.review_status === "approved"
+                  ? "status-ok"
+                  : document.review_status === "rejected"
+                  ? "status-danger"
+                  : ""
+              }`}
+            >
+              {STATUS_LABELS[document.review_status]}
+            </span>
+          )}
         </div>
       </div>
 
       <div className="document-body">
-        {files.length === 0 ? (
-          <div className="required-document-notice">
-            <AlertCircle size={16} />
-
-            <span>
-              Nenhum arquivo foi enviado para este documento.
-              {document?.not_available
-                ? " O fornecedor informou que não possui essa documentação."
-                : ""}
-            </span>
+        {!document || (!files.length && !document.not_available) ? (
+          <div className="notice-card warning">
+            <AlertCircle size={18} />
+            <div>
+              <strong>Documento não enviado</strong>
+              <p>
+                O fornecedor ainda não enviou este documento.
+              </p>
+            </div>
+          </div>
+        ) : document.not_available ? (
+          <div className="notice-card info">
+            <Info size={18} />
+            <div>
+              <strong>Fornecedor informou que não possui</strong>
+            </div>
           </div>
         ) : (
           <>
             <div className="selected-files">
-              {files.map(
-                (
-                  file,
-                  index
-                ) => (
-                  <div
-                    className="selected-file"
-                    key={`${file.name}-${index}`}
-                  >
-                    <FileText size={16} />
-
-                    <span
-                      style={{
-                        flex: 1,
-                      }}
-                    >
-                      {file.name}
-                    </span>
-                  </div>
-                )
-              )}
+              {files.map((file, index) => (
+                <AdminFileItem
+                  key={`${file.path}-${index}`}
+                  file={file}
+                />
+              ))}
             </div>
 
-            <div className="document-actions">
-              <button
-                type="button"
-                className="secondary-button small-button"
-                onClick={() =>
-                  onOpen(
-                    document
-                  )
-                }
-              >
-                <Eye size={16} />
-                Abrir arquivo(s)
-              </button>
-            </div>
-          </>
-        )}
+            {item.expires && (
+              <div className="date-fields">
+                <label>
+                  Data de emissão
+                  <input
+                    type="date"
+                    value={document.issue_date || ""}
+                    readOnly
+                  />
+                </label>
 
-        {document?.issue_date && (
-          <div className="date-fields">
-            <label>
-              Data de emissão
-
-              <input
-                type="date"
-                value={
-                  document.issue_date
-                }
-                disabled
-                readOnly
-              />
-            </label>
-
-            <label>
-              Data de validade
-
-              <input
-                type="date"
-                value={
-                  document.expiry_date ||
-                  ""
-                }
-                disabled
-                readOnly
-              />
-            </label>
-          </div>
-        )}
-
-        {canReview && (
-          <>
-            <label
-              style={{
-                display: "grid",
-                gap: "7px",
-              }}
-            >
-              Observação da Budel
-
-              <textarea
-                value={notes}
-                onChange={(e) =>
-                  setNotes(
-                    e.target.value
-                  )
-                }
-                placeholder="Digite o motivo da reprovação ou alguma observação..."
-                rows={3}
-                style={{
-                  width: "100%",
-                  resize: "vertical",
-                }}
-              />
-            </label>
-
-            <div className="document-actions">
-              <button
-                type="button"
-                className="secondary-button small-button"
-                onClick={() =>
-                  onReview(
-                    document,
-                    "rejected",
-                    notes
-                  )
-                }
-                disabled={
-                  saving ||
-                  !document ||
-                  files.length === 0
-                }
-              >
-                <XCircle size={16} />
-                Reprovar documento
-              </button>
-
-              <button
-                type="button"
-                className="primary-button small-button"
-                onClick={() =>
-                  onReview(
-                    document,
-                    "approved",
-                    notes
-                  )
-                }
-                disabled={
-                  saving ||
-                  !document ||
-                  files.length === 0
-                }
-              >
-                <CheckCircle2 size={16} />
-                Aprovar documento
-              </button>
-            </div>
-
-            {saving && (
-              <div className="muted">
-                Salvando análise...
+                <label>
+                  Data de validade
+                  <input
+                    type="date"
+                    value={document.expiry_date || ""}
+                    readOnly
+                  />
+                </label>
               </div>
             )}
           </>
         )}
 
-        {!canReview &&
-          document?.review_notes && (
-            <div className="alert error">
-              <strong>Observação da Budel:</strong>
-              <br />
-              {document.review_notes}
+        {document?.review_status === "rejected" &&
+          document.review_notes && (
+            <div className="notice-card warning">
+              <AlertCircle size={18} />
+
+              <div>
+                <strong>Observação da análise</strong>
+                <p>{document.review_notes}</p>
+              </div>
             </div>
           )}
+
+        {canReview && document && files.length > 0 && (
+          <>
+            <label>
+              Observação deste documento
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Informe uma observação..."
+                rows={3}
+              />
+            </label>
+
+            <div className="document-actions">
+              <button
+                className="secondary-button small-button danger-button"
+                onClick={() => review("rejected")}
+                disabled={loading}
+              >
+                <X size={15} />
+                Rejeitar documento
+              </button>
+
+              <button
+                className="secondary-button small-button success-button"
+                onClick={() => review("approved")}
+                disabled={loading}
+              >
+                <Check size={15} />
+                Aprovar documento
+              </button>
+            </div>
+          </>
+        )}
       </div>
-    </div>
+    </article>
   );
 }
 
-/* =========================================================
-   APP PRINCIPAL
-   ========================================================= */
+function AdminFileItem({ file }) {
+  const [url, setUrl] = useState("");
 
-export default function App() {
-  const [session, setSession] =
-    useState(null);
+  async function openFile() {
+    const { data, error } = await supabase.storage
+      .from("supplier-documents")
+      .createSignedUrl(file.path, 300);
 
-  const [page, setPage] =
-    useState("home");
-
-  const [authMode, setAuthMode] =
-    useState("login");
-
-  const [
-    checkingSession,
-    setCheckingSession,
-  ] = useState(true);
-
-  const [isAdmin, setIsAdmin] =
-    useState(false);
-
-  const [adminProfile, setAdminProfile] =
-    useState(null);
-
-  const [
-    checkingRole,
-    setCheckingRole,
-  ] = useState(false);
-
-  async function checkAdminRole(user) {
-    if (!user) {
-      setIsAdmin(false);
-      setAdminProfile(null);
-      return false;
+    if (error) {
+      alert(error.message);
+      return;
     }
 
-    setCheckingRole(true);
+    setUrl(data?.signedUrl || "");
 
-    try {
-      const {
-        data,
-        error,
-      } = await supabase
-        .from("profiles")
-        .select(
-          "id, full_name, email, role, admin_keywords, admin_can_manage_users"
-        )
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error(error);
-        setIsAdmin(false);
-        setAdminProfile(null);
-        return false;
-      }
-
-      const admin =
-        data?.role === "admin";
-
-      setIsAdmin(admin);
-
-      if (admin) {
-        setAdminProfile(data);
-      } else {
-        setAdminProfile(null);
-      }
-
-      return admin;
-    } catch (err) {
-      console.error(err);
-      setIsAdmin(false);
-      setAdminProfile(null);
-      return false;
-    } finally {
-      setCheckingRole(false);
+    if (data?.signedUrl) {
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
     }
-  }
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadSession() {
-      const {
-        data: {
-          session:
-            currentSession,
-        },
-      } =
-        await supabase.auth.getSession();
-
-      if (!mounted) return;
-
-      setSession(
-        currentSession
-      );
-
-      if (
-        currentSession?.user
-      ) {
-        const admin =
-          await checkAdminRole(
-            currentSession.user
-          );
-
-        if (admin) {
-          setPage("admin");
-        } else {
-          setPage(
-            "dashboard"
-          );
-        }
-      }
-
-      setCheckingSession(
-        false
-      );
-    }
-
-    loadSession();
-
-    const {
-      data: {
-        subscription,
-      },
-    } =
-      supabase.auth.onAuthStateChange(
-        async (
-          _event,
-          newSession
-        ) => {
-          setSession(
-            newSession
-          );
-
-          if (
-            newSession?.user
-          ) {
-            const admin =
-              await checkAdminRole(
-                newSession.user
-              );
-
-            if (admin) {
-              setPage("admin");
-            } else {
-              setPage(
-                "dashboard"
-              );
-            }
-          } else {
-            setIsAdmin(false);
-            setAdminProfile(null);
-            setPage("home");
-          }
-        }
-      );
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  function downloadChecklist() {
-    const link =
-      document.createElement(
-        "a"
-      );
-
-    link.href =
-      checklistUrl;
-
-    link.download =
-      "F103-04 - CheckList de Inspeção de Fornecedores.docx";
-
-    document.body.appendChild(
-      link
-    );
-
-    link.click();
-
-    link.remove();
-  }
-
-  async function logout() {
-    await supabase.auth.signOut();
-
-    setSession(null);
-    setIsAdmin(false);
-    setAdminProfile(null);
-    setPage("home");
-  }
-
-  if (
-    checkingSession ||
-    checkingRole
-  ) {
-    return (
-      <div className="app-loading">
-        Carregando portal...
-      </div>
-    );
   }
 
   return (
-    <div className="app">
-      <Header
-        session={session}
-        isAdmin={isAdmin}
-        onAdmin={() =>
-          setPage("admin")
-        }
-        onLogout={logout}
-        onHome={() =>
-          setPage(
-            session
-              ? isAdmin
-                ? "admin"
-                : "dashboard"
-              : "home"
-          )
-        }
-        onDownload={
-          downloadChecklist
-        }
-      />
+    <div className="selected-file">
+      <FileText size={16} />
 
-      {page === "home" && (
-        <Home
-          onLogin={() => {
-            setAuthMode("login");
-            setPage("auth");
-          }}
-          onSignup={() => {
-            setAuthMode("signup");
-            setPage("auth");
-          }}
-          onDownload={
-            downloadChecklist
-          }
-        />
+      <span>{file.name}</span>
+
+      <button
+        type="button"
+        className="secondary-button small-button"
+        onClick={openFile}
+      >
+        <Eye size={15} />
+        Visualizar
+      </button>
+
+      {url && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="secondary-button small-button"
+        >
+          <Download size={15} />
+          Baixar
+        </a>
       )}
-
-      {page === "auth" &&
-        !session && (
-          <AuthPage
-            mode={authMode}
-            setMode={
-              setAuthMode
-            }
-            onBack={() =>
-              setPage("home")
-            }
-          />
-        )}
-
-      {page === "dashboard" &&
-        session &&
-        !isAdmin && (
-          <SupplierDashboard />
-        )}
-
-      {page === "admin" &&
-        session &&
-        isAdmin &&
-        adminProfile && (
-          <AdminDashboard
-            adminProfile={adminProfile}
-            onBack={() =>
-              setPage("home")
-            }
-          />
-        )}
-
-      <footer className="site-footer">
-        <div>
-          <strong>
-            Budel Transportes Ltda
-          </strong>
-
-          <span>
-            Portal de Homologação de Fornecedores
-          </span>
-        </div>
-      </footer>
     </div>
   );
 }
+
+function StatusBadge({ status, label }) {
+  let className = "";
+
+  if (status === "approved") {
+    className = "status-ok";
+  } else if (status === "rejected") {
+    className = "status-danger";
+  } else if (status === "submitted") {
+    className = "status-warning";
+  }
+
+  return (
+    <span className={`status-badge ${className}`}>
+      {label}
+    </span>
+  );
+}
+
+export default App;
