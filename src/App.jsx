@@ -19,6 +19,20 @@ import { documentTypes } from "./data/checklist";
 const checklistUrl =
   "/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx";
 
+/*
+  Documentos que são obrigatórios e NÃO podem ser marcados
+  como "Não possuímos essa documentação".
+*/
+const mandatoryDocuments = [
+  "cnpj",
+  "checklist",
+  "photos",
+];
+
+function isMandatoryDocument(type) {
+  return mandatoryDocuments.includes(type);
+}
+
 function formatCnpj(value = "") {
   const numbers = value.replace(/\D/g, "").slice(0, 14);
 
@@ -775,14 +789,23 @@ function DocumentsPage({ company, onBack }) {
     setError("");
     setMessage("");
 
+    /*
+      Verifica se existe algum documento pendente.
+      Para documentos obrigatórios, "Não possui" também é considerado pendente.
+    */
     const missing = documentTypes.filter((item) => {
       const doc = documentMap[item.key];
+
+      if (isMandatoryDocument(item.key)) {
+        return !doc || !doc.file_path || doc.not_available;
+      }
+
       return documentStatus(doc) === "missing";
     });
 
     if (missing.length > 0) {
       setError(
-        `Ainda existem ${missing.length} documentação(ões) pendente(s). Anexe o documento ou marque "Não possuímos essa documentação".`
+        `Ainda existem ${missing.length} documentação(ões) pendente(s). Anexe todos os documentos obrigatórios e, nos demais, anexe o documento ou marque "Não possuímos essa documentação".`
       );
       return;
     }
@@ -791,6 +814,14 @@ function DocumentsPage({ company, onBack }) {
       const doc = documentMap[item.key];
 
       if (!doc || doc.not_available) return false;
+
+      /*
+        Fotos e checklist não precisam necessariamente de validade.
+        Os demais documentos precisam informar validade quando enviados.
+      */
+      if (item.key === "photos" || item.key === "checklist") {
+        return false;
+      }
 
       return !doc.expiry_date;
     });
@@ -938,6 +969,7 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
   );
 
   const status = documentStatus(document);
+  const mandatory = isMandatoryDocument(item.key);
 
   useEffect(() => {
     setIssueDate(document?.issue_date || "");
@@ -946,14 +978,30 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
   }, [document]);
 
   function save() {
-    if (!notAvailable && !file && !document?.file_path) {
-      alert(
-        "Anexe um arquivo ou marque 'Não possuímos essa documentação'."
-      );
+    if (mandatory) {
+      if (!file && !document?.file_path) {
+        alert("Este documento é obrigatório. Anexe o arquivo para continuar.");
+        return;
+      }
+    } else {
+      if (!notAvailable && !file && !document?.file_path) {
+        alert(
+          "Anexe um arquivo ou marque 'Não possuímos essa documentação'."
+        );
+        return;
+      }
+    }
+
+    /*
+      Checklist e fotos são obrigatórios, mas não possuem
+      necessariamente uma data de validade.
+    */
+    if (!notAvailable && !mandatory && !expiryDate) {
+      alert("Informe a validade do documento.");
       return;
     }
 
-    if (!notAvailable && !expiryDate) {
+    if (!notAvailable && mandatory && item.key !== "photos" && item.key !== "checklist" && !expiryDate) {
       alert("Informe a validade do documento.");
       return;
     }
@@ -962,7 +1010,7 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
       file,
       issueDate,
       expiryDate,
-      notAvailable,
+      notAvailable: mandatory ? false : notAvailable,
     });
   }
 
@@ -975,7 +1023,10 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
           </div>
 
           <div>
-            <h3>{item.label}</h3>
+            <h3>
+              {item.label}
+              {mandatory && <span className="required-mark"> *</span>}
+            </h3>
 
             {item.description && <p>{item.description}</p>}
           </div>
@@ -1030,22 +1081,31 @@ function DocumentCard({ item, document, saving, onSave, onOpen }) {
           </label>
         </div>
 
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={notAvailable}
-            onChange={(e) => {
-              setNotAvailable(e.target.checked);
+        {!mandatory && (
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={notAvailable}
+              onChange={(e) => {
+                setNotAvailable(e.target.checked);
 
-              if (e.target.checked) {
-                setFile(null);
-                setExpiryDate("");
-              }
-            }}
-          />
+                if (e.target.checked) {
+                  setFile(null);
+                  setExpiryDate("");
+                }
+              }}
+            />
 
-          <span>Não possuímos essa documentação</span>
-        </label>
+            <span>Não possuímos essa documentação</span>
+          </label>
+        )}
+
+        {mandatory && (
+          <div className="required-document-notice">
+            <AlertCircle size={16} />
+            <span>Documento obrigatório para a homologação.</span>
+          </div>
+        )}
 
         <div className="document-actions">
           {document?.file_path && !notAvailable && (
