@@ -399,42 +399,101 @@ function getDocumentExpiryStatus(document) {
   return null;
 }
 
-const NAVIGATION_STORAGE_KEY = "budel_navigation";
-
-function readSavedNavigation() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(NAVIGATION_STORAGE_KEY) || "null");
-    if (!saved || typeof saved !== "object") return null;
-    return saved;
-  } catch {
-    return null;
-  }
-}
-
-function saveNavigation(page, companyId = null) {
-  try {
-    localStorage.setItem(
-      NAVIGATION_STORAGE_KEY,
-      JSON.stringify({ page, companyId })
-    );
-  } catch {
-    // Se o navegador bloquear o armazenamento, a navegação continua normalmente.
-  }
-}
-
 function App() {
-  const savedNavigation = readSavedNavigation();
-
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [page, setPage] = useState(savedNavigation?.page || "home");
+  const [page, setPage] = useState("home");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [supplierNotificationsOpen, setSupplierNotificationsOpen] = useState(false);
   const [supplierNotificationCount, setSupplierNotificationCount] = useState(0);
   const [adminNotificationsOpen, setAdminNotificationsOpen] = useState(false);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
+  const [supplierNotificationCompanies, setSupplierNotificationCompanies] = useState([]);
+
+  useEffect(() => {
+    if (!session?.user || profile?.role === "admin") {
+      setSupplierNotificationCompanies([]);
+      return;
+    }
+
+    let active = true;
+
+    async function loadSupplierNotificationCompanies() {
+      const { data } = await supabase
+        .from("companies")
+        .select("*")
+        .eq("owner_id", session.user.id)
+        .order("created_at", { ascending: false });
+
+      if (active) {
+        setSupplierNotificationCompanies(data || []);
+      }
+    }
+
+    loadSupplierNotificationCompanies();
+
+    return () => {
+      active = false;
+    };
+  }, [session?.user?.id, profile?.role]);
+
+  function saveLastLocation(nextPage, company = null) {
+    try {
+      localStorage.setItem(
+        "budel:last-location",
+        JSON.stringify({
+          page: nextPage,
+          companyId: company?.id || null,
+        })
+      );
+    } catch {}
+  }
+
+  function goToPage(nextPage, company = null) {
+    setSelectedCompany(company);
+    setPage(nextPage);
+    saveLastLocation(nextPage, company);
+  }
+
+  async function restoreLastLocation(data, userId) {
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem("budel:last-location") || "null");
+    } catch {}
+
+    const role = data?.role;
+    const validPages =
+      role === "admin"
+        ? ["admin", "admin-company"]
+        : ["supplier", "company"];
+
+    if (!saved || !validPages.includes(saved.page)) {
+      goToPage(role === "admin" ? "admin" : "supplier");
+      return;
+    }
+
+    if ((saved.page === "company" || saved.page === "admin-company") && saved.companyId) {
+      const query = supabase
+        .from("companies")
+        .select("*")
+        .eq("id", saved.companyId);
+
+      if (role !== "admin") {
+        query.eq("owner_id", userId);
+      }
+
+      const { data: company } = await query.maybeSingle();
+
+      if (company) {
+        goToPage(saved.page, company);
+        return;
+      }
+    }
+
+    goToPage(saved.page === "admin-company" ? "admin" : saved.page);
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -493,51 +552,18 @@ function App() {
     }
 
     setProfile(data);
-
-    const saved = readSavedNavigation();
-    const isAdmin = data?.role === "admin";
-    const savedCompanyPage =
-      saved?.page === (isAdmin ? "admin-company" : "company") &&
-      saved?.companyId;
-
-    if (savedCompanyPage) {
-      const { data: savedCompany, error: companyError } = await supabase
-        .from("companies")
-        .select("*")
-        .eq("id", saved.companyId)
-        .maybeSingle();
-
-      if (!companyError && savedCompany) {
-        if (!isAdmin && savedCompany.owner_id !== userId) {
-          saveNavigation("supplier", null);
-          setPage("supplier");
-          return;
-        }
-
-        setSelectedCompany(savedCompany);
-        setPage(saved.page);
-        return;
-      }
-    }
-
-    const defaultPage = isAdmin ? "admin" : "supplier";
-    setSelectedCompany(null);
-    setPage(defaultPage);
-    saveNavigation(defaultPage, null);
-  }
-
-  function navigateTo(nextPage, company = null) {
-    setSelectedCompany(company);
-    setPage(nextPage);
-    saveNavigation(nextPage, company?.id || null);
+    await restoreLastLocation(data, userId);
   }
 
   async function handleSignOut() {
     await supabase.auth.signOut();
 
+    try {
+      localStorage.removeItem("budel:last-location");
+    } catch {}
+
     setSelectedCompany(null);
     setPage("home");
-    saveNavigation("home", null);
   }
 
   if (loading) {
@@ -618,9 +644,9 @@ function App() {
           top: 76px;
           right: 24px;
           width: min(460px, calc(100vw - 32px));
-          max-height: 70vh;
+          max-height: min(70vh, 620px);
           overflow: auto;
-          z-index: 20;
+          z-index: 9999;
           margin: 0 !important;
           box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
         }
@@ -734,25 +760,38 @@ function App() {
       <Header
         session={session}
         profile={profile}
-        onHome={() => navigateTo("home")}
-        onLogin={() => navigateTo("login")}
+        onHome={() => goToPage("home")}
+        onLogin={() => goToPage("login")}
         onSignOut={handleSignOut}
-        onAdmin={() => navigateTo("admin")}
+        onAdmin={() => goToPage("admin")}
         onSupplier={() => {
-          navigateTo("supplier");
+          goToPage("supplier");
           setSupplierNotificationsOpen(false);
         }}
         supplierNotificationCount={supplierNotificationCount}
         onOpenSupplierNotifications={() => {
-          navigateTo("supplier");
           setSupplierNotificationsOpen(true);
         }}
         adminNotificationCount={adminNotificationCount}
         onOpenAdminNotifications={() => {
-          navigateTo("admin");
           setAdminNotificationsOpen(true);
         }}
       />
+
+      {session && profile?.role !== "admin" && (
+        <SupplierNotificationCenter
+          session={session}
+          companies={supplierNotificationCompanies}
+          isOpen={supplierNotificationsOpen}
+          onOpenCompany={(company) => {
+            setSupplierNotificationsOpen(false);
+            goToPage("company", company);
+          }}
+          onCountChange={setSupplierNotificationCount}
+          onClose={() => setSupplierNotificationsOpen(false)}
+          onOpen={() => setSupplierNotificationsOpen(true)}
+        />
+      )}
 
       {page === "home" && (
         <HomePage
@@ -760,13 +799,13 @@ function App() {
           profile={profile}
           onStart={() => {
             if (session) {
-              navigateTo(
+              setPage(
                 profile?.role === "admin"
                   ? "admin"
                   : "supplier"
               );
             } else {
-              navigateTo("login");
+              setPage("login");
             }
           }}
         />
@@ -787,15 +826,15 @@ function App() {
               );
             }
           }}
-          onSignup={() => navigateTo("signup")}
-          onBack={() => navigateTo("home")}
+          onSignup={() => setPage("signup")}
+          onBack={() => setPage("home")}
         />
       )}
 
       {page === "signup" && (
         <SignupPage
-          onBack={() => navigateTo("login")}
-          onSuccess={() => navigateTo("login")}
+          onBack={() => setPage("login")}
+          onSuccess={() => setPage("login")}
         />
       )}
 
@@ -810,7 +849,7 @@ function App() {
             onNotificationsClose={() => setSupplierNotificationsOpen(false)}
             onNotificationCountChange={setSupplierNotificationCount}
             onOpenCompany={(company) => {
-              navigateTo("company", company);
+              goToPage("company", company);
             }}
           />
         )}
@@ -822,7 +861,7 @@ function App() {
             session={session}
             company={selectedCompany}
             onBack={() => {
-              navigateTo("supplier");
+              goToPage("supplier");
             }}
           />
         )}
@@ -838,7 +877,7 @@ function App() {
             onNotificationsClose={() => setAdminNotificationsOpen(false)}
             onNotificationCountChange={setAdminNotificationCount}
             onOpenCompany={(company) => {
-              navigateTo("admin-company", company);
+              goToPage("admin-company", company);
             }}
           />
         )}
@@ -852,7 +891,8 @@ function App() {
             company={selectedCompany}
             adminProfile={profile}
             onBack={() => {
-              navigateTo("admin");
+              setSelectedCompany(null);
+              setPage("admin");
             }}
           />
         )}
@@ -1453,18 +1493,6 @@ function SupplierDashboard({
         </div>
       )}
 
-      {companies.length > 0 && (
-        <SupplierNotificationCenter
-          session={session}
-          companies={companies}
-          isOpen={notificationsOpen}
-          onOpen={onNotificationsOpen}
-          onOpenCompany={onOpenCompany}
-          onCountChange={onNotificationCountChange}
-          onClose={onNotificationsClose}
-        />
-      )}
-
       {loading ? (
         <div className="loading-box">
           <RefreshCw
@@ -1835,7 +1863,7 @@ function SupplierNotificationCenter({
         <div className="empty-state" style={{ marginTop: "16px" }}>
           <CheckCircle2 size={28} />
           <h2>Nenhuma notificação</h2>
-          <p>Não há avisos nesta categoria no momento.</p>
+          <p>Não há avisos para os seus CNPJs no momento.</p>
         </div>
       ) : (
         <div
