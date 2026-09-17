@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+
 import {
   AlertCircle,
   ArrowLeft,
+  Bell,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -286,13 +287,24 @@ function isValidDate(value) {
 }
 
 function normalizeOtherDocumentFile(file) {
+  const expiryType =
+    file?.expiry_type === "definitive" ||
+    file?.expiry_text?.trim() === "Licença definitiva"
+      ? "definitive"
+      : file?.expiry_date
+      ? "date"
+      : "";
+
   return {
     path: file?.path || "",
     name: file?.name || "Documento",
     title: file?.title || file?.name || "Documento",
-    issue_date: file?.issue_date || "",
     expiry_date: file?.expiry_date || "",
-    expiry_text: file?.expiry_text || "",
+    expiry_type: expiryType,
+    expiry_text:
+      expiryType === "definitive"
+        ? "Licença definitiva"
+        : "",
   };
 }
 
@@ -302,9 +314,28 @@ function getOtherDocumentFiles(document) {
   );
 }
 
+function getDocumentExpiryType(document) {
+  if (
+    document?.expiry_text?.trim() ===
+    "Licença definitiva"
+  ) {
+    return "definitive";
+  }
+
+  if (document?.expiry_date) {
+    return "date";
+  }
+
+  return "";
+}
+
 function getOtherDocumentExpiryLabel(file) {
-  if (file?.expiry_text?.trim()) {
-    return file.expiry_text;
+  if (
+    file?.expiry_type === "definitive" ||
+    file?.expiry_text?.trim() ===
+      "Licença definitiva"
+  ) {
+    return "Licença definitiva";
   }
 
   if (file?.expiry_date) {
@@ -315,16 +346,40 @@ function getOtherDocumentExpiryLabel(file) {
 }
 
 function getOtherDocumentExpiryStatus(file) {
+  if (
+    file?.expiry_type === "definitive" ||
+    file?.expiry_text?.trim() ===
+      "Licença definitiva"
+  ) {
+    return {
+      className: "status-ok",
+      label: "Licença definitiva",
+    };
+  }
+
   if (!file?.expiry_date) {
     return {
       className: "",
-      label: file?.expiry_text?.trim()
-        ? file.expiry_text
-        : "Validade não informada",
+      label: "Validade não informada",
     };
   }
 
   return expiryStatus(file.expiry_date);
+}
+
+function getDocumentExpiryStatus(document) {
+  if (getDocumentExpiryType(document) === "definitive") {
+    return {
+      className: "status-ok",
+      label: "Licença definitiva",
+    };
+  }
+
+  if (document?.expiry_date) {
+    return expiryStatus(document.expiry_date);
+  }
+
+  return null;
 }
 
 function App() {
@@ -395,6 +450,8 @@ function App() {
 
     if (data?.role === "admin") {
       setPage("admin");
+    } else {
+      setPage("supplier");
     }
   }
 
@@ -994,6 +1051,9 @@ function SupplierDashboard({
   const [message, setMessage] =
     useState("");
 
+  const [showNotifications, setShowNotifications] =
+    useState(true);
+
   async function loadCompanies() {
     setLoading(true);
 
@@ -1074,6 +1134,31 @@ function SupplierDashboard({
         <div className="form-message error">
           {message}
         </div>
+      )}
+
+      {companies.length > 0 && (
+        <div style={{ marginBottom: "24px" }}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() =>
+              setShowNotifications((current) => !current)
+            }
+          >
+            <Bell size={17} />
+            {showNotifications
+              ? "Ocultar notificações"
+              : "Abrir notificações"}
+          </button>
+        </div>
+      )}
+
+      {showNotifications && companies.length > 0 && (
+        <SupplierNotificationCenter
+          session={session}
+          companies={companies}
+          onOpenCompany={onOpenCompany}
+        />
       )}
 
       {loading ? (
@@ -1188,6 +1273,300 @@ function SupplierDashboard({
         />
       )}
     </main>
+  );
+}
+
+
+function SupplierNotificationCenter({
+  session,
+  companies,
+  onOpenCompany,
+}) {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadNotifications() {
+      if (!companies.length) {
+        if (active) {
+          setNotifications([]);
+          setLoading(false);
+        }
+        return;
+      }
+
+      setLoading(true);
+
+      const companyIds = companies.map((company) => company.id);
+
+      const { data: documents, error } = await supabase
+        .from("documents")
+        .select("*")
+        .in("company_id", companyIds);
+
+      if (!active) return;
+
+      if (error) {
+        console.error(error);
+        setNotifications([]);
+        setLoading(false);
+        return;
+      }
+
+      const companyMap = new Map(
+        companies.map((company) => [company.id, company])
+      );
+
+      const items = [];
+
+      companies.forEach((company) => {
+        if (company.submission_status === "approved") {
+          items.push({
+            id: `company-approved-${company.id}`,
+            type: "approved",
+            title: "CNPJ homologado",
+            text: `${company.legal_name} foi homologada pela Budel.`,
+            company,
+          });
+        }
+
+        if (company.submission_status === "rejected") {
+          items.push({
+            id: `company-rejected-${company.id}`,
+            type: "rejected",
+            title: "Correções necessárias",
+            text:
+              company.review_notes ||
+              `${company.legal_name} precisa de correções antes de uma nova análise.`,
+            company,
+          });
+        }
+      });
+
+      (documents || []).forEach((document) => {
+        const company = companyMap.get(document.company_id);
+        if (!company) return;
+
+        const definition = getDocumentDefinition(document.type);
+        const documentName =
+          definition?.label ||
+          (document.type === "outros"
+            ? "Outros documentos"
+            : document.type);
+
+        if (document.review_status === "approved") {
+          items.push({
+            id: `document-approved-${document.id}`,
+            type: "approved",
+            title: "Documento aprovado",
+            text: `${documentName} de ${company.legal_name} foi aprovado.`,
+            company,
+          });
+        }
+
+        if (document.review_status === "rejected") {
+          items.push({
+            id: `document-rejected-${document.id}`,
+            type: "rejected",
+            title: "Documento rejeitado",
+            text:
+              document.review_notes ||
+              `${documentName} de ${company.legal_name} foi rejeitado e precisa de correção.`,
+            company,
+          });
+        }
+
+        if (document.not_available) {
+          if (document.review_status === "pending") {
+            items.push({
+              id: `document-missing-${document.id}`,
+              type: "pending",
+              title: "Documento aguardando análise",
+              text: `${documentName} foi informado como "Não possuímos essa documentação" e está aguardando análise da Budel.`,
+              company,
+            });
+          }
+        }
+
+        if (document.not_available) return;
+
+        if (document.type === "outros") {
+          getOtherDocumentFiles(document).forEach((file, index) => {
+            if (!file?.expiry_date) return;
+
+            const days = daysUntil(file.expiry_date);
+            if (days === null || days > 15) return;
+
+            items.push({
+              id: `expiry-${document.id}-${index}`,
+              type: "expiry",
+              title:
+                days < 0
+                  ? "Documento vencido"
+                  : days === 0
+                  ? "Documento vence hoje"
+                  : "Documento próximo do vencimento",
+              text: `${file.title || file.name || "Outro documento"} — ${
+                days < 0
+                  ? `vencido há ${Math.abs(days)} dia(s)`
+                  : days === 0
+                  ? "vence hoje"
+                  : `vence em ${days} dia(s)`
+              }.`,
+              company,
+            });
+          });
+          return;
+        }
+
+        if (document.expiry_date) {
+          const days = daysUntil(document.expiry_date);
+          if (days !== null && days <= 15) {
+            items.push({
+              id: `expiry-${document.id}`,
+              type: "expiry",
+              title:
+                days < 0
+                  ? "Documento vencido"
+                  : days === 0
+                  ? "Documento vence hoje"
+                  : "Documento próximo do vencimento",
+              text: `${documentName} — ${
+                days < 0
+                  ? `vencido há ${Math.abs(days)} dia(s)`
+                  : days === 0
+                  ? "vence hoje"
+                  : `vence em ${days} dia(s)`
+              }.`,
+              company,
+            });
+          }
+        }
+      });
+
+      items.sort((a, b) => {
+        const priority = {
+          rejected: 0,
+          expiry: 1,
+          pending: 2,
+          approved: 3,
+        };
+        return (priority[a.type] ?? 9) - (priority[b.type] ?? 9);
+      });
+
+      setNotifications(items);
+      setLoading(false);
+    }
+
+    loadNotifications();
+
+    return () => {
+      active = false;
+    };
+  }, [companies]);
+
+  const visibleNotifications =
+    filter === "all"
+      ? notifications
+      : notifications.filter((item) => item.type === filter);
+
+  return (
+    <section className="notice-card info" style={{ display: "block" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <Bell size={20} />
+          <div>
+            <strong>Central de notificações</strong>
+            <p style={{ marginBottom: 0 }}>
+              Acompanhe documentos vencendo, aprovados, rejeitados e pendentes.
+            </p>
+          </div>
+        </div>
+
+        <span className="status-badge">
+          {notifications.length} aviso(s)
+        </span>
+      </div>
+
+      <div
+        className="document-validity-options"
+        style={{ marginTop: "16px" }}
+      >
+        {[
+          ["all", "Todos"],
+          ["expiry", "Vencimentos"],
+          ["approved", "Aprovados"],
+          ["rejected", "Rejeitados"],
+          ["pending", "Pendentes"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={
+              filter === value
+                ? "primary-button small-button"
+                : "secondary-button small-button"
+            }
+            onClick={() => setFilter(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="loading-box" style={{ marginTop: "16px" }}>
+          <RefreshCw size={18} className="spin" />
+          Carregando notificações...
+        </div>
+      ) : visibleNotifications.length === 0 ? (
+        <div className="empty-state" style={{ marginTop: "16px" }}>
+          <CheckCircle2 size={28} />
+          <h2>Nenhuma notificação</h2>
+          <p>Não há avisos nesta categoria no momento.</p>
+        </div>
+      ) : (
+        <div
+          className="documents-list"
+          style={{ marginTop: "16px" }}
+        >
+          {visibleNotifications.map((notification) => (
+            <button
+              key={notification.id}
+              type="button"
+              className="notice-card"
+              style={{
+                width: "100%",
+                textAlign: "left",
+                cursor: "pointer",
+                border: "1px solid var(--viz-border, #ddd)",
+                background: "transparent",
+              }}
+              onClick={() => onOpenCompany(notification.company)}
+            >
+              <div>
+                <strong>{notification.title}</strong>
+                <p>{notification.text}</p>
+                <span className="text-button">
+                  Abrir CNPJ
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1438,11 +1817,17 @@ function SupplierCompanyPage({
 
       files,
 
-      issue_date:
-        payload.issue_date || null,
+      issue_date: null,
 
       expiry_date:
-        payload.expiry_date || null,
+        payload.expiry_type === "definitive"
+          ? null
+          : payload.expiry_date || null,
+
+      expiry_text:
+        payload.expiry_type === "definitive"
+          ? "Licença definitiva"
+          : "",
 
       not_available:
         Boolean(payload.not_available),
@@ -1622,14 +2007,18 @@ function SupplierCompanyPage({
                 file.title ||
                 file.name ||
                 "Documento",
-              issue_date:
-                file.issue_date || "",
               expiry_date:
-                file.expiry_date ||
-                "",
+                file.expiry_type === "definitive"
+                  ? ""
+                  : file.expiry_date || "",
+              expiry_type:
+                file.expiry_type === "definitive"
+                  ? "definitive"
+                  : "date",
               expiry_text:
-                file.expiry_text ||
-                "",
+                file.expiry_type === "definitive"
+                  ? "Licença definitiva"
+                  : "",
             })
           );
 
@@ -1746,60 +2135,25 @@ function SupplierCompanyPage({
             }
 
             if (
-              !file?.issue_date ||
-              !isValidDate(
-                file.issue_date
-              )
+              file?.expiry_type !== "date" &&
+              file?.expiry_type !== "definitive"
             ) {
               missing.push(
-                `${item.label} — documento ${number}: informe uma data de emissão válida`
+                `${item.label} — documento ${number}: selecione "Vencimento" ou "Licença definitiva"`
               );
             }
 
-            const hasExpiryDate =
-              Boolean(
-                file?.expiry_date
-              );
-
-            const hasExpiryText =
-              Boolean(
-                file?.expiry_text?.trim()
-              );
-
-            if (
-              hasExpiryDate &&
-              hasExpiryText
-            ) {
-              missing.push(
-                `${item.label} — documento ${number}: informe a validade por data OU por texto, não os dois`
-              );
-            }
-
-            if (
-              !hasExpiryDate &&
-              !hasExpiryText
-            ) {
-              missing.push(
-                `${item.label} — documento ${number}: informe a validade`
-              );
-            }
-
-            if (
-              hasExpiryDate
-            ) {
+            if (file?.expiry_type === "date") {
               if (
-                !isValidDate(
-                  file.expiry_date
-                )
+                !file?.expiry_date ||
+                !isValidDate(file.expiry_date)
               ) {
                 missing.push(
-                  `${item.label} — documento ${number}: data de validade inválida`
+                  `${item.label} — documento ${number}: informe uma data de vencimento válida`
                 );
               } else {
                 const days =
-                  daysUntil(
-                    file.expiry_date
-                  );
+                  daysUntil(file.expiry_date);
 
                 if (
                   days !== null &&
@@ -1821,46 +2175,44 @@ function SupplierCompanyPage({
         item.expires &&
         files.length
       ) {
+        const documentExpiryType =
+          getDocumentExpiryType(document);
+
         if (
-          !document?.issue_date ||
-          !isValidDate(
-            document.issue_date
-          )
+          documentExpiryType !== "date" &&
+          documentExpiryType !== "definitive"
         ) {
           missing.push(
-            `${item.label} — informe uma data de emissão válida`
+            `${item.label} — selecione "Vencimento" ou "Licença definitiva"`
           );
         }
 
         if (
-          !document?.expiry_date ||
-          !isValidDate(
-            document.expiry_date
-          )
+          documentExpiryType === "date"
         ) {
-          missing.push(
-            `${item.label} — informe uma data de validade válida`
-          );
-        }
-
-        if (
-          document?.expiry_date &&
-          isValidDate(
-            document.expiry_date
-          )
-        ) {
-          const days =
-            daysUntil(
-              document.expiry_date
-            );
-
           if (
-            days !== null &&
-            days < 0
+            !document?.expiry_date ||
+            !isValidDate(
+              document.expiry_date
+            )
           ) {
             missing.push(
-              `${item.label} — documento vencido`
+              `${item.label} — informe uma data de vencimento válida`
             );
+          } else {
+            const days =
+              daysUntil(
+                document.expiry_date
+              );
+
+            if (
+              days !== null &&
+              days < 0
+            ) {
+              missing.push(
+                `${item.label} — documento vencido`
+              );
+            }
           }
         }
       }
@@ -2087,21 +2439,19 @@ function SupplierDocumentCard({
   const [files, setFiles] =
     useState([]);
 
-  const [issueDate, setIssueDate] =
-    useState(
-      document?.issue_date || ""
-    );
-
   const [expiryDate, setExpiryDate] =
     useState(
       document?.expiry_date || ""
     );
 
+  const [expiryType, setExpiryType] =
+    useState(
+      getDocumentExpiryType(document)
+    );
+
   const [notAvailable, setNotAvailable] =
     useState(
-      Boolean(
-        document?.not_available
-      )
+      Boolean(document?.not_available)
     );
 
   const [fileObjects, setFileObjects] =
@@ -2115,33 +2465,23 @@ function SupplierDocumentCard({
 
   useEffect(() => {
     const currentFiles =
-      getDocumentFiles(
-        document
-      );
+      getDocumentFiles(document);
 
     setFiles(currentFiles);
-
-    setIssueDate(
-      document?.issue_date || ""
-    );
-
     setExpiryDate(
       document?.expiry_date || ""
     );
-
-    setNotAvailable(
-      Boolean(
-        document?.not_available
-      )
+    setExpiryType(
+      getDocumentExpiryType(document)
     );
-
+    setNotAvailable(
+      Boolean(document?.not_available)
+    );
     setFileObjects([]);
 
     if (isOther) {
       const normalized =
-        getOtherDocumentFiles(
-          document
-        ).map(
+        getOtherDocumentFiles(document).map(
           (file, index) => ({
             ...file,
             localId:
@@ -2150,9 +2490,7 @@ function SupplierDocumentCard({
           })
         );
 
-      setOtherFiles(
-        normalized
-      );
+      setOtherFiles(normalized);
     } else {
       setOtherFiles([]);
     }
@@ -2161,64 +2499,48 @@ function SupplierDocumentCard({
   }, [document, isOther]);
 
   function handleFiles(event) {
-    const selected =
-      Array.from(
-        event.target.files || []
-      );
+    const selected = Array.from(
+      event.target.files || []
+    );
 
-    if (!selected.length) {
-      return;
-    }
+    if (!selected.length) return;
 
     if (item.multiple) {
-      setFileObjects(
-        (current) => [
-          ...current,
-          ...selected,
-        ]
-      );
-    } else {
-      setFileObjects([
-        selected[0],
+      setFileObjects((current) => [
+        ...current,
+        ...selected,
       ]);
+    } else {
+      setFileObjects([selected[0]]);
     }
 
     setNotAvailable(false);
-
     event.target.value = "";
   }
 
   function handleOtherFiles(event) {
-    const selected =
-      Array.from(
-        event.target.files || []
-      );
-
-    if (!selected.length) {
-      return;
-    }
-
-    setOtherFiles(
-      (current) => [
-        ...current,
-        ...selected.map(
-          (file, index) => ({
-            localId:
-              `new-${Date.now()}-${index}`,
-            file,
-            path: "",
-            name: file.name,
-            title: file.name,
-            issue_date: "",
-            expiry_date: "",
-            expiry_text: "",
-          })
-        ),
-      ]
+    const selected = Array.from(
+      event.target.files || []
     );
 
-    setNotAvailable(false);
+    if (!selected.length) return;
 
+    setOtherFiles((current) => [
+      ...current,
+      ...selected.map((file, index) => ({
+        localId:
+          `new-${Date.now()}-${index}`,
+        file,
+        path: "",
+        name: file.name,
+        title: file.name,
+        expiry_date: "",
+        expiry_type: "",
+        expiry_text: "",
+      })),
+    ]);
+
+    setNotAvailable(false);
     event.target.value = "";
   }
 
@@ -2227,62 +2549,53 @@ function SupplierDocumentCard({
     field,
     value
   ) {
-    setOtherFiles(
-      (current) =>
-        current.map(
-          (item) =>
-            item.localId ===
-            localId
-              ? {
-                  ...item,
-                  [field]:
-                    value,
-
-                  ...(field ===
-                    "expiry_date" &&
-                  value
-                    ? {
-                        expiry_text:
-                          "",
-                      }
-                    : {}),
-
-                  ...(field ===
-                    "expiry_text" &&
-                  value
-                    ? {
-                        expiry_date:
-                          "",
-                      }
-                    : {}),
-                }
-              : item
-        )
+    setOtherFiles((current) =>
+      current.map((item) =>
+        item.localId === localId
+          ? {
+              ...item,
+              [field]: value,
+              ...(field === "expiry_type"
+                ? value === "definitive"
+                  ? {
+                      expiry_date: "",
+                      expiry_text:
+                        "Licença definitiva",
+                    }
+                  : value === "date"
+                  ? { expiry_text: "" }
+                  : {
+                      expiry_date: "",
+                      expiry_text: "",
+                    }
+                : {}),
+              ...(field === "expiry_date" &&
+              value
+                ? {
+                    expiry_type: "date",
+                    expiry_text: "",
+                  }
+                : {}),
+            }
+          : item
+      )
     );
   }
 
-  function removeOtherFile(
-    localId
-  ) {
-    setOtherFiles(
-      (current) =>
-        current.filter(
-          (item) =>
-            item.localId !==
-            localId
-        )
+  function removeOtherFile(localId) {
+    setOtherFiles((current) =>
+      current.filter(
+        (item) => item.localId !== localId
+      )
     );
   }
 
-  function removeSelectedFile(
-    index
-  ) {
-    setFileObjects(
-      (current) =>
-        current.filter(
-          (_file, fileIndex) =>
-            fileIndex !== index
-        )
+  function removeSelectedFile(index) {
+    setFileObjects((current) =>
+      current.filter(
+        (_file, fileIndex) =>
+          fileIndex !== index
+      )
     );
   }
 
@@ -2300,26 +2613,19 @@ function SupplierDocumentCard({
         return;
       }
 
-      if (
-        notAvailable
-      ) {
-        const success =
-          await onSave({
-            otherFiles: [],
-            files: [],
-            not_available:
-              true,
-            issue_date: "",
-            expiry_date: "",
-          });
+      if (notAvailable) {
+        const success = await onSave({
+          otherFiles: [],
+          files: [],
+          not_available: true,
+          expiry_type: "",
+          expiry_date: "",
+        });
 
-        if (
-          success !== false
-        ) {
+        if (success !== false) {
           setOtherFiles([]);
           setFileObjects([]);
         }
-
         return;
       }
 
@@ -2328,12 +2634,9 @@ function SupplierDocumentCard({
         index < otherFiles.length;
         index += 1
       ) {
-        const file =
-          otherFiles[index];
+        const file = otherFiles[index];
 
-        if (
-          !file.title?.trim()
-        ) {
+        if (!file.title?.trim()) {
           setMessage(
             `Documento ${index + 1}: informe o título.`
           );
@@ -2341,69 +2644,32 @@ function SupplierDocumentCard({
         }
 
         if (
-          !file.issue_date ||
-          !isValidDate(
-            file.issue_date
-          )
+          file.expiry_type !== "date" &&
+          file.expiry_type !== "definitive"
         ) {
           setMessage(
-            `Documento ${index + 1}: informe uma data de emissão válida.`
+            `Documento ${index + 1}: selecione "Vencimento" ou "Licença definitiva".`
           );
           return;
         }
 
-        const hasExpiryDate =
-          Boolean(
-            file.expiry_date
-          );
+        if (file.expiry_type === "date") {
+          if (
+            !file.expiry_date ||
+            !isValidDate(file.expiry_date)
+          ) {
+            setMessage(
+              `Documento ${index + 1}: informe uma data de vencimento válida.`
+            );
+            return;
+          }
 
-        const hasExpiryText =
-          Boolean(
-            file.expiry_text?.trim()
-          );
-
-        if (
-          hasExpiryDate &&
-          hasExpiryText
-        ) {
-          setMessage(
-            `Documento ${index + 1}: informe a validade por data OU por texto.`
-          );
-          return;
-        }
-
-        if (
-          !hasExpiryDate &&
-          !hasExpiryText
-        ) {
-          setMessage(
-            `Documento ${index + 1}: informe a validade.`
-          );
-          return;
-        }
-
-        if (
-          hasExpiryDate &&
-          !isValidDate(
-            file.expiry_date
-          )
-        ) {
-          setMessage(
-            `Documento ${index + 1}: a data de validade é inválida.`
-          );
-          return;
-        }
-
-        if (
-          hasExpiryDate &&
-          daysUntil(
-            file.expiry_date
-          ) < 0
-        ) {
-          setMessage(
-            `Documento ${index + 1}: a data de validade já passou.`
-          );
-          return;
+          if (daysUntil(file.expiry_date) < 0) {
+            setMessage(
+              `Documento ${index + 1}: a data de vencimento já passou.`
+            );
+            return;
+          }
         }
 
         if (!file.path && !file.file) {
@@ -2414,25 +2680,19 @@ function SupplierDocumentCard({
         }
       }
 
-      const success =
-        await onSave({
-          otherFiles,
-          files: otherFiles.filter(
-            (file) =>
-              file.path
-          ),
-          not_available:
-            false,
-          issue_date: "",
-          expiry_date: "",
-        });
+      const success = await onSave({
+        otherFiles,
+        files: otherFiles.filter(
+          (file) => file.path
+        ),
+        not_available: false,
+        expiry_type: "",
+        expiry_date: "",
+      });
 
-      if (
-        success !== false
-      ) {
+      if (success !== false) {
         setFileObjects([]);
       }
-
       return;
     }
 
@@ -2461,84 +2721,72 @@ function SupplierDocumentCard({
 
     if (
       item.expires &&
-      (files.length ||
-        fileObjects.length)
+      (files.length || fileObjects.length) &&
+      !notAvailable
     ) {
       if (
-        !issueDate ||
-        !isValidDate(
-          issueDate
-        )
+        expiryType !== "date" &&
+        expiryType !== "definitive"
       ) {
         setMessage(
-          "Informe uma data de emissão válida."
+          'Selecione "Vencimento" ou "Licença definitiva".'
         );
         return;
       }
 
-      if (
-        !expiryDate ||
-        !isValidDate(
-          expiryDate
-        )
-      ) {
-        setMessage(
-          "Informe uma data de validade válida."
-        );
-        return;
-      }
+      if (expiryType === "date") {
+        if (
+          !expiryDate ||
+          !isValidDate(expiryDate)
+        ) {
+          setMessage(
+            "Informe uma data de vencimento válida."
+          );
+          return;
+        }
 
-      if (
-        daysUntil(
-          expiryDate
-        ) < 0
-      ) {
-        setMessage(
-          "A data de validade informada já passou."
-        );
-        return;
+        if (daysUntil(expiryDate) < 0) {
+          setMessage(
+            "A data de vencimento informada já passou."
+          );
+          return;
+        }
       }
     }
 
-    const success =
-      await onSave({
-        files,
-        fileObjects,
-        issue_date:
-          issueDate,
-        expiry_date:
-          expiryDate,
-        not_available:
-          notAvailable,
-      });
+    const success = await onSave({
+      files,
+      fileObjects,
+      expiry_type: item.expires
+        ? expiryType
+        : "",
+      expiry_date:
+        item.expires &&
+        expiryType === "date"
+          ? expiryDate
+          : "",
+      not_available: notAvailable,
+    });
 
-    if (
-      success !== false
-    ) {
+    if (success !== false) {
       setFileObjects([]);
     }
   }
 
   const status =
-    document?.expiry_date &&
-    item.expires &&
-    !isOther
-      ? expiryStatus(
-          document.expiry_date
-        )
+    item.expires && !isOther
+      ? getDocumentExpiryStatus(document)
       : null;
 
   const rejected =
-    document?.review_status ===
-    "rejected";
+    document?.review_status === "rejected";
 
   return (
     <article className="document-card">
       <div className="document-top">
         <div className="document-title">
           <div className="document-icon">
-            {item.type ===
-            "fotos_local" ? (
+            {item.type === "fotos_local" ? (
               <ImageIcon size={21} />
             ) : (
               <FileText size={21} />
@@ -2555,39 +2803,44 @@ function SupplierDocumentCard({
               )}
             </h3>
 
-            <p>
-              {item.description}
-            </p>
+            <p>{item.description}</p>
           </div>
         </div>
 
-        {status && (
-          <span
-            className={`status-badge ${status.className}`}
-          >
-            {status.label}
-          </span>
-        )}
+        <div className="document-status-group">
+          {status && (
+            <span
+              className={`status-badge ${status.className}`}
+            >
+              {status.label}
+            </span>
+          )}
+
+          {document?.review_status && (
+            <span
+              className={`status-badge ${
+                document.review_status === "approved"
+                  ? "status-ok"
+                  : document.review_status === "rejected"
+                  ? "status-danger"
+                  : ""
+              }`}
+            >
+              {STATUS_LABELS[document.review_status]}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="document-body">
         {rejected && (
           <div className="notice-card warning">
             <AlertCircle size={18} />
-
             <div>
-              <strong>
-                Documento rejeitado
-              </strong>
-
+              <strong>Documento rejeitado</strong>
               {document.review_notes && (
-                <p>
-                  {
-                    document.review_notes
-                  }
-                </p>
+                <p>{document.review_notes}</p>
               )}
-
               <p>
                 Envie uma nova versão para análise.
               </p>
@@ -2599,220 +2852,172 @@ function SupplierDocumentCard({
           <>
             <label className="upload-area">
               <Upload size={25} />
-
               {otherFiles.length ? (
                 <>
                   <strong>
                     {otherFiles.length} documento(s)
                     selecionado(s)
                   </strong>
-
-                  <span>
-                    Clique para adicionar mais
-                  </span>
+                  <span>Clique para adicionar mais</span>
                 </>
               ) : (
                 <>
                   <strong>
                     Clique para selecionar os arquivos
                   </strong>
-
                   <span>
                     Você pode adicionar vários documentos
                   </span>
                 </>
               )}
-
               <input
                 type="file"
                 multiple
-                onChange={
-                  handleOtherFiles
-                }
+                onChange={handleOtherFiles}
               />
             </label>
 
-            {otherFiles.length >
-              0 && (
+            {otherFiles.length > 0 && (
               <div className="selected-files">
-                {otherFiles.map(
-                  (
-                    file,
-                    index
-                  ) => {
-                    const fileStatus =
-                      getOtherDocumentExpiryStatus(
-                        file
-                      );
+                {otherFiles.map((file, index) => {
+                  const fileStatus =
+                    getOtherDocumentExpiryStatus(file);
 
-                    return (
-                      <div
-                        className="other-document-editor"
-                        key={
-                          file.localId ||
-                          `${file.path}-${index}`
-                        }
-                      >
-                        <div className="selected-file">
-                          <FileText size={16} />
+                  return (
+                    <div
+                      className="other-document-editor"
+                      key={
+                        file.localId ||
+                        `${file.path}-${index}`
+                      }
+                    >
+                      <div className="selected-file">
+                        <FileText size={16} />
+                        <span>{file.name}</span>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          onClick={() =>
+                            removeOtherFile(
+                              file.localId
+                            )
+                          }
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
 
-                          <span>
-                            {file.name}
+                      <label>
+                        Título do documento
+                        <input
+                          type="text"
+                          value={file.title || ""}
+                          onChange={(event) =>
+                            updateOtherFile(
+                              file.localId,
+                              "title",
+                              event.target.value
+                            )
+                          }
+                          placeholder="Ex.: Licença Ambiental"
+                        />
+                      </label>
+
+                      <div className="document-validity-row">
+                        <div>
+                          <span className="document-validity-label">
+                            Validade
                           </span>
-
-                          <button
-                            type="button"
-                            className="icon-button"
-                            onClick={() =>
-                              removeOtherFile(
-                                file.localId
-                              )
-                            }
-                          >
-                            <X size={15} />
-                          </button>
-                        </div>
-
-                        <div className="date-fields">
-                          <label>
-                            Título do documento
-                            <input
-                              type="text"
-                              value={
-                                file.title ||
-                                ""
+                          <div className="document-validity-options">
+                            <button
+                              type="button"
+                              className={
+                                file.expiry_type === "date"
+                                  ? "primary-button small-button"
+                                  : "secondary-button small-button"
                               }
-                              onChange={(
-                                event
-                              ) =>
+                              onClick={() =>
                                 updateOtherFile(
                                   file.localId,
-                                  "title",
-                                  event
-                                    .target
-                                    .value
+                                  "expiry_type",
+                                  "date"
                                 )
                               }
-                              placeholder="Ex.: Licença Ambiental"
-                            />
-                          </label>
-
-                          <label>
-                            Data de emissão
-                            <input
-                              type="date"
-                              value={
-                                file.issue_date ||
-                                ""
+                            >
+                              Vencimento
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                file.expiry_type === "definitive"
+                                  ? "primary-button small-button"
+                                  : "secondary-button small-button"
                               }
-                              onChange={(
-                                event
-                              ) =>
+                              onClick={() =>
                                 updateOtherFile(
                                   file.localId,
-                                  "issue_date",
-                                  event
-                                    .target
-                                    .value
+                                  "expiry_type",
+                                  "definitive"
                                 )
                               }
-                            />
-                          </label>
+                            >
+                              Licença definitiva
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="date-fields">
+                        {file.expiry_type === "date" && (
                           <label>
-                            Data de validade
+                            Data de vencimento
                             <input
                               type="date"
-                              value={
-                                file.expiry_date ||
-                                ""
-                              }
-                              onChange={(
-                                event
-                              ) =>
+                              value={file.expiry_date || ""}
+                              onChange={(event) =>
                                 updateOtherFile(
                                   file.localId,
                                   "expiry_date",
-                                  event
-                                    .target
-                                    .value
+                                  event.target.value
                                 )
                               }
                             />
                           </label>
-
-                          <label>
-                            Ou validade em texto
-                            <input
-                              type="text"
-                              value={
-                                file.expiry_text ||
-                                ""
-                              }
-                              onChange={(
-                                event
-                              ) =>
-                                updateOtherFile(
-                                  file.localId,
-                                  "expiry_text",
-                                  event
-                                    .target
-                                    .value
-                                )
-                              }
-                              placeholder="Ex.: Licença definitiva"
-                            />
-                          </label>
-                        </div>
-
-                        {(file.expiry_date ||
-                          file.expiry_text) && (
-                          <div className="required-document-notice">
-                            <Info size={15} />
-
-                            {file.expiry_date
-                              ? fileStatus.label
-                              : "Validade informada por texto. Não será considerada para lembrete automático."}
-                          </div>
                         )}
                       </div>
-                    );
-                  }
-                )}
+
+                      {file.expiry_type && (
+                        <div className="required-document-notice">
+                          <Info size={15} />
+                          Validade: {fileStatus.label}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
             <div className="required-document-notice">
               <Info size={15} />
-
-              Informe a validade de cada documento por data ou por texto,
-              por exemplo: "Licença definitiva".
+              Para cada documento, selecione "Vencimento" e informe a data, ou selecione "Licença definitiva".
             </div>
           </>
         ) : (
           <>
             <label className="upload-area">
               <Upload size={25} />
-
               {fileObjects.length ? (
                 <>
                   <strong>
                     {fileObjects.length} arquivo(s)
                     selecionado(s)
                   </strong>
-
-                  <span>
-                    Clique para alterar
-                  </span>
+                  <span>Clique para alterar</span>
                 </>
               ) : files.length ? (
                 <>
                   <strong>
                     {files.length} arquivo(s) já enviado(s)
                   </strong>
-
                   <span>
                     Clique para adicionar/substituir
                   </span>
@@ -2820,134 +3025,120 @@ function SupplierDocumentCard({
               ) : (
                 <>
                   <strong>
-                    Clique para selecionar{" "}
+                    Clique para selecionar {""}
                     {item.multiple
                       ? "os arquivos"
                       : "o arquivo"}
                   </strong>
-
                   <span>
                     PDF, JPG, PNG ou outro formato permitido
                   </span>
                 </>
               )}
-
               <input
                 type="file"
-                multiple={Boolean(
-                  item.multiple
-                )}
-                onChange={
-                  handleFiles
-                }
+                multiple={Boolean(item.multiple)}
+                onChange={handleFiles}
               />
             </label>
 
-            {fileObjects.length >
-              0 && (
+            {fileObjects.length > 0 && (
               <div className="selected-files">
-                {fileObjects.map(
-                  (
-                    file,
-                    index
-                  ) => (
-                    <div
-                      className="selected-file"
-                      key={`${file.name}-${index}`}
+                {fileObjects.map((file, index) => (
+                  <div
+                    className="selected-file"
+                    key={`${file.name}-${index}`}
+                  >
+                    <FileText size={16} />
+                    <span>{file.name}</span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() =>
+                        removeSelectedFile(index)
+                      }
                     >
-                      <FileText size={16} />
-
-                      <span>
-                        {file.name}
-                      </span>
-
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() =>
-                          removeSelectedFile(
-                            index
-                          )
-                        }
-                      >
-                        <X size={15} />
-                      </button>
-                    </div>
-                  )
-                )}
+                      <X size={15} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
-            {files.length >
-              0 && (
+            {files.length > 0 && !fileObjects.length && (
               <div className="selected-files">
-                {files.map(
-                  (
-                    file,
-                    index
-                  ) => (
-                    <div
-                      className="selected-file"
-                      key={`${file.path}-${index}`}
-                    >
-                      <FileText size={16} />
-
-                      <span>
-                        {file.name}
-                      </span>
-                    </div>
-                  )
-                )}
+                {files.map((file, index) => (
+                  <div
+                    className="selected-file"
+                    key={`${file.path}-${index}`}
+                  >
+                    <FileText size={16} />
+                    <span>{file.name}</span>
+                  </div>
+                ))}
               </div>
             )}
 
             {item.expires && (
-              <div className="date-fields">
-                <label>
-                  Data de emissão
-                  <input
-                    type="date"
-                    value={
-                      issueDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setIssueDate(
-                        event
-                          .target
-                          .value
-                      )
-                    }
-                  />
-                </label>
+              <div className="document-validity-row">
+                <div>
+                  <span className="document-validity-label">
+                    Validade
+                  </span>
+                  <div className="document-validity-options">
+                    <button
+                      type="button"
+                      className={
+                        expiryType === "date"
+                          ? "primary-button small-button"
+                          : "secondary-button small-button"
+                      }
+                      onClick={() => {
+                        setExpiryType("date");
+                        setNotAvailable(false);
+                      }}
+                    >
+                      Vencimento
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        expiryType === "definitive"
+                          ? "primary-button small-button"
+                          : "secondary-button small-button"
+                      }
+                      onClick={() => {
+                        setExpiryType("definitive");
+                        setExpiryDate("");
+                        setNotAvailable(false);
+                      }}
+                    >
+                      Licença definitiva
+                    </button>
+                  </div>
+                </div>
 
-                <label>
-                  Data de validade
-                  <input
-                    type="date"
-                    value={
-                      expiryDate
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setExpiryDate(
-                        event
-                          .target
-                          .value
-                      )
-                    }
-                  />
-                </label>
+                {expiryType === "date" && (
+                  <label>
+                    Data de vencimento
+                    <input
+                      type="date"
+                      value={expiryDate}
+                      onChange={(event) =>
+                        setExpiryDate(
+                          event.target.value
+                        )
+                      }
+                    />
+                  </label>
+                )}
               </div>
             )}
 
             {item.expires && (
               <div className="required-document-notice">
                 <Info size={15} />
-                Informe manualmente a data de emissão e a data de validade
-                exatamente como constam no documento.
+                Selecione "Vencimento" para informar a data ou "Licença definitiva" quando o documento não tiver vencimento.
               </div>
             )}
           </>
@@ -2957,36 +3148,20 @@ function SupplierDocumentCard({
           <label className="checkbox-label">
             <input
               type="checkbox"
-              checked={
-                notAvailable
-              }
-              onChange={(
-                event
-              ) => {
-                const checked =
-                  event.target
-                    .checked;
-
-                setNotAvailable(
-                  checked
-                );
-
+              checked={notAvailable}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setNotAvailable(checked);
                 if (checked) {
-                  setFileObjects(
-                    []
-                  );
-
-                  if (
-                    isOther
-                  ) {
-                    setOtherFiles(
-                      []
-                    );
+                  setFileObjects([]);
+                  setExpiryType("");
+                  setExpiryDate("");
+                  if (isOther) {
+                    setOtherFiles([]);
                   }
                 }
               }}
             />
-
             Não possuímos essa documentação
           </label>
         )}
@@ -3005,8 +3180,7 @@ function SupplierDocumentCard({
         )}
 
         <div className="document-actions">
-          {item.type ===
-            "checklist" && (
+          {item.type === "checklist" && (
             <a
               className="secondary-button small-button"
               href="/checklist/F103-04 - CheckList de Inspeção de Fornecedores.docx"
@@ -3020,9 +3194,7 @@ function SupplierDocumentCard({
           <button
             type="button"
             className="secondary-button small-button"
-            onClick={
-              handleSave
-            }
+            onClick={handleSave}
             disabled={saving}
           >
             {saving ? (
@@ -3320,23 +3492,6 @@ function AdminDashboard({
                       : "";
 
                   row[
-                    `${item.label} - Data de emissão`
-                  ] =
-                    otherFiles.length
-                      ? otherFiles
-                          .map(
-                            (
-                              file
-                            ) =>
-                              `${file.title}: ${formatDate(
-                                file.issue_date
-                              )}`
-                          )
-                          .join(
-                            " | "
-                          )
-                      : "";
-
                   row[
                     `${item.label} - Data de vencimento`
                   ] =
@@ -3392,9 +3547,7 @@ function AdminDashboard({
                               file,
                               index
                             ) =>
-                              `${index + 1}. Título: ${file.title} | Arquivo: ${file.name} | Emissão: ${formatDate(
-                                file.issue_date
-                              )} | Validade: ${getOtherDocumentExpiryLabel(
+                              `${index + 1}. Título: ${file.title} | Arquivo: ${file.name} | Validade: ${getOtherDocumentExpiryLabel(
                                 file
                               )}`
                           )
@@ -3419,18 +3572,14 @@ function AdminDashboard({
                     .join(" | ");
 
                 row[
-                  `${item.label} - Data de emissão`
-                ] =
-                  formatDate(
-                    document?.issue_date
-                  );
-
-                row[
                   `${item.label} - Data de vencimento`
                 ] =
-                  formatDate(
-                    document?.expiry_date
-                  );
+                  getDocumentExpiryType(document) ===
+                  "definitive"
+                    ? "Licença definitiva"
+                    : formatDate(
+                        document?.expiry_date
+                      );
 
                 row[
                   `${item.label} - Status`
@@ -3481,14 +3630,12 @@ function AdminDashboard({
             "outros"
               ? [
                   { wch: 35 },
-                  { wch: 35 },
                   { wch: 45 },
                   { wch: 35 },
                   { wch: 70 },
                 ]
               : [
                   { wch: 35 },
-                  { wch: 18 },
                   { wch: 20 },
                   { wch: 24 },
                   { wch: 35 },
@@ -4010,6 +4157,29 @@ function AdminCompanyPage({
     }
 
     await loadDocuments();
+    return true;
+  }
+
+  async function undoDocumentReview(document) {
+    if (!canReview || !document) return false;
+
+    const { error } = await supabase
+      .from("documents")
+      .update({
+        review_status: "pending",
+        reviewed_at: null,
+        reviewed_by: null,
+        review_notes: null,
+      })
+      .eq("id", document.id);
+
+    if (error) {
+      setMessage(error.message);
+      return false;
+    }
+
+    await loadDocuments();
+    return true;
   }
 
   async function updateCompanyStatus(
@@ -4183,6 +4353,9 @@ function AdminCompanyPage({
                   onReview={
                     updateDocumentReview
                   }
+                  onUndo={
+                    undoDocumentReview
+                  }
                 />
               );
             }
@@ -4231,12 +4404,27 @@ function AdminCompanyPage({
                 )
               }
               disabled={
-                savingCompany
+                savingCompany ||
+                company.submission_status === "rejected"
               }
             >
               <X size={17} />
               Solicitar correções
             </button>
+
+            {company.submission_status === "rejected" && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  updateCompanyStatus("submitted")
+                }
+                disabled={savingCompany}
+              >
+                <RefreshCw size={17} />
+                Cancelar correções
+              </button>
+            )}
 
             <button
               type="button"
@@ -4265,6 +4453,7 @@ function AdminDocumentCard({
   document,
   canReview,
   onReview,
+  onUndo,
 }) {
   const isOther =
     item.type === "outros";
@@ -4437,56 +4626,56 @@ function AdminDocumentCard({
                         file={file}
                       />
 
-                      <div className="date-fields">
-                        <label>
-                          Título
-                          <input
-                            type="text"
-                            value={
-                              file.title ||
-                              ""
-                            }
-                            readOnly
-                          />
-                        </label>
+                      <label>
+                        Título
+                        <input
+                          type="text"
+                          value={file.title || ""}
+                          readOnly
+                        />
+                      </label>
 
-                        <label>
-                          Data de emissão
-                          <input
-                            type="date"
-                            value={
-                              file.issue_date ||
-                              ""
-                            }
-                            readOnly
-                          />
-                        </label>
-                      </div>
+                      <div className="document-validity-row">
+                        <div>
+                          <span className="document-validity-label">
+                            Validade
+                          </span>
+                          <div className="document-validity-options">
+                            <button
+                              type="button"
+                              className={
+                                file.expiry_type === "date"
+                                  ? "primary-button small-button"
+                                  : "secondary-button small-button"
+                              }
+                              disabled
+                            >
+                              Vencimento
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                file.expiry_type === "definitive"
+                                  ? "primary-button small-button"
+                                  : "secondary-button small-button"
+                              }
+                              disabled
+                            >
+                              Licença definitiva
+                            </button>
+                          </div>
+                        </div>
 
-                      <div className="date-fields">
-                        <label>
-                          Data de validade
-                          <input
-                            type="date"
-                            value={
-                              file.expiry_date ||
-                              ""
-                            }
-                            readOnly
-                          />
-                        </label>
-
-                        <label>
-                          Validade em texto
-                          <input
-                            type="text"
-                            value={
-                              file.expiry_text ||
-                              ""
-                            }
-                            readOnly
-                          />
-                        </label>
+                        {file.expiry_type === "date" && (
+                          <label>
+                            Data de vencimento
+                            <input
+                              type="date"
+                              value={file.expiry_date || ""}
+                              readOnly
+                            />
+                          </label>
+                        )}
                       </div>
 
                       <div className="required-document-notice">
@@ -4518,30 +4707,47 @@ function AdminDocumentCard({
             </div>
 
             {item.expires && (
-              <div className="date-fields">
-                <label>
-                  Data de emissão
-                  <input
-                    type="date"
-                    value={
-                      document.issue_date ||
-                      ""
-                    }
-                    readOnly
-                  />
-                </label>
+              <div className="document-validity-row">
+                <div>
+                  <span className="document-validity-label">
+                    Validade
+                  </span>
+                  <div className="document-validity-options">
+                    <button
+                      type="button"
+                      className={
+                        getDocumentExpiryType(document) === "date"
+                          ? "primary-button small-button"
+                          : "secondary-button small-button"
+                      }
+                      disabled
+                    >
+                      Vencimento
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        getDocumentExpiryType(document) === "definitive"
+                          ? "primary-button small-button"
+                          : "secondary-button small-button"
+                      }
+                      disabled
+                    >
+                      Licença definitiva
+                    </button>
+                  </div>
+                </div>
 
-                <label>
-                  Data de validade
-                  <input
-                    type="date"
-                    value={
-                      document.expiry_date ||
-                      ""
-                    }
-                    readOnly
-                  />
-                </label>
+                {getDocumentExpiryType(document) === "date" && (
+                  <label>
+                    Data de vencimento
+                    <input
+                      type="date"
+                      value={document.expiry_date || ""}
+                      readOnly
+                    />
+                  </label>
+                )}
               </div>
             )}
           </>
@@ -4569,7 +4775,8 @@ function AdminDocumentCard({
 
         {canReview &&
           document &&
-          files.length > 0 && (
+          (files.length > 0 || document.not_available) &&
+          document.review_status === "pending" && (
             <>
               <label>
                 Observação deste documento
@@ -4616,6 +4823,46 @@ function AdminDocumentCard({
                 </button>
               </div>
             </>
+          )}
+
+        {canReview &&
+          document &&
+          document.review_status === "rejected" && (
+            <div className="document-actions">
+              <button
+                type="button"
+                className="secondary-button small-button"
+                onClick={async () => {
+                  setLoading(true);
+                  await onUndo(document);
+                  setLoading(false);
+                }}
+                disabled={loading}
+              >
+                <RefreshCw size={15} />
+                Cancelar correções
+              </button>
+            </div>
+          )}
+
+        {canReview &&
+          document &&
+          document.review_status === "approved" && (
+            <div className="document-actions">
+              <button
+                type="button"
+                className="secondary-button small-button"
+                onClick={async () => {
+                  setLoading(true);
+                  await onUndo(document);
+                  setLoading(false);
+                }}
+                disabled={loading}
+              >
+                <RefreshCw size={15} />
+                Desfazer aprovação
+              </button>
+            </div>
           )}
       </div>
     </article>
