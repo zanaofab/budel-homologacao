@@ -2508,6 +2508,10 @@ function SupplierCompanyPage({
     );
 
     setSubmissionLoading(false);
+
+    setTimeout(() => {
+      onBack();
+    }, 900);
   }
 
   return (
