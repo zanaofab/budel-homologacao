@@ -40,7 +40,7 @@ const DOCUMENTS = [
     label: "Cartão CNPJ",
     description: "Comprovante de inscrição e situação cadastral.",
     required: true,
-    expires: true,
+    expires: false,
   },
   {
     type: "alvara",
@@ -125,6 +125,22 @@ const COMPANY_STATUS_LABELS = {
   approved: "Homologado",
   rejected: "Correções necessárias",
 };
+
+async function recordAdminActivity(type, companyId) {
+  if (!type || !companyId) return;
+
+  const { error } = await supabase.rpc(
+    "create_budel_admin_activity",
+    {
+      p_type: type,
+      p_company_id: companyId,
+    }
+  );
+
+  if (error) {
+    console.error("Não foi possível registrar a notificação administrativa:", error);
+  }
+}
 
 function normalizeText(value) {
   return String(value || "")
@@ -474,6 +490,161 @@ function App() {
 
   return (
     <div className="app">
+      <style>{`
+        .app input:not([type="checkbox"]):not([type="radio"]),
+        .app textarea,
+        .app select {
+          border-radius: 10px !important;
+        }
+
+        .app input[type="date"] {
+          border-radius: 10px !important;
+        }
+
+        .app button,
+        .app .primary-button,
+        .app .secondary-button,
+        .app .small-button {
+          border-radius: 10px;
+        }
+
+        .app .document-validity-options {
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .app .selected-file {
+          border-radius: 10px;
+        }
+
+        .supplier-page-title {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .supplier-page-title h1 {
+          margin: 0;
+        }
+
+        .notification-bell {
+          position: relative;
+          width: 42px;
+          height: 42px;
+          min-width: 42px;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid #d9dde3;
+          background: #fff;
+          color: #374151;
+          cursor: pointer;
+          box-shadow: none;
+        }
+
+        .notification-bell:hover {
+          background: #f7f8fa;
+        }
+
+        .notification-count {
+          position: absolute;
+          top: -7px;
+          right: -7px;
+          min-width: 21px;
+          height: 21px;
+          padding: 0 5px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: #e74c5b;
+          color: #fff;
+          font-size: 11px;
+          font-weight: 700;
+          line-height: 1;
+          border: 2px solid #fff;
+        }
+
+        .app .document-actions {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+
+        .admin-filter-bar {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin: 18px 0 26px;
+        }
+
+        .admin-company-section {
+          margin-bottom: 34px;
+        }
+
+        .admin-section-heading,
+        .admin-notification-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .admin-section-heading h2 {
+          margin: 0;
+        }
+
+        .compact-empty-state {
+          padding: 20px;
+        }
+
+        .admin-notification-center {
+          display: block;
+          margin-bottom: 22px;
+        }
+
+        .admin-notification-header p {
+          margin: 4px 0 0;
+        }
+
+        .admin-notification-list {
+          display: grid;
+          gap: 8px;
+        }
+
+        .admin-notification-item {
+          width: 100%;
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 12px;
+          border: 1px solid #d9dde3;
+          border-radius: 10px;
+          background: #fff;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .admin-notification-item span {
+          display: grid;
+          gap: 4px;
+          min-width: 0;
+        }
+
+        .admin-notification-item small {
+          color: #6b7280;
+        }
+
+        .admin-notification-bell {
+          flex: 0 0 auto;
+        }
+      `}</style>
+
       <Header
         session={session}
         profile={profile}
@@ -1053,7 +1224,9 @@ function SupplierDashboard({
     useState("");
 
   const [showNotifications, setShowNotifications] =
-    useState(true);
+    useState(false);
+  const [notificationCount, setNotificationCount] =
+    useState(0);
 
   async function loadCompanies() {
     setLoading(true);
@@ -1110,7 +1283,29 @@ function SupplierDashboard({
             Portal do fornecedor
           </div>
 
-          <h1>Meus CNPJs</h1>
+          <div className="supplier-page-title">
+            <h1>Meus CNPJs</h1>
+
+            {companies.length > 0 && (
+              <button
+                type="button"
+                className="notification-bell"
+                aria-label="Abrir notificações"
+                title="Notificações"
+                onClick={() => {
+                  setShowNotifications(true);
+                  setNotificationCount(0);
+                }}
+              >
+                <Bell size={22} />
+                {notificationCount > 0 && (
+                  <span className="notification-count">
+                    {notificationCount > 99 ? "99+" : notificationCount}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
 
           <p>
             {profile?.full_name
@@ -1138,27 +1333,17 @@ function SupplierDashboard({
       )}
 
       {companies.length > 0 && (
-        <div style={{ marginBottom: "24px" }}>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() =>
-              setShowNotifications((current) => !current)
-            }
-          >
-            <Bell size={17} />
-            {showNotifications
-              ? "Ocultar notificações"
-              : "Abrir notificações"}
-          </button>
-        </div>
-      )}
-
-      {showNotifications && companies.length > 0 && (
         <SupplierNotificationCenter
           session={session}
           companies={companies}
+          isOpen={showNotifications}
           onOpenCompany={onOpenCompany}
+          onCountChange={(count) => {
+            if (!showNotifications) {
+              setNotificationCount(count);
+            }
+          }}
+          onClose={() => setShowNotifications(false)}
         />
       )}
 
@@ -1282,6 +1467,9 @@ function SupplierNotificationCenter({
   session,
   companies,
   onOpenCompany,
+  onCountChange,
+  onClose,
+  isOpen,
 }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1294,6 +1482,7 @@ function SupplierNotificationCenter({
       if (!companies.length) {
         if (active) {
           setNotifications([]);
+          onCountChange?.(0);
           setLoading(false);
         }
         return;
@@ -1423,7 +1612,7 @@ function SupplierNotificationCenter({
           return;
         }
 
-        if (document.expiry_date) {
+        if (definition?.expires && document.expiry_date) {
           const days = daysUntil(document.expiry_date);
           if (days !== null && days <= 15) {
             items.push({
@@ -1459,6 +1648,7 @@ function SupplierNotificationCenter({
       });
 
       setNotifications(items);
+      onCountChange?.(items.length);
       setLoading(false);
     }
 
@@ -1473,6 +1663,8 @@ function SupplierNotificationCenter({
     filter === "all"
       ? notifications
       : notifications.filter((item) => item.type === filter);
+
+  if (!isOpen) return null;
 
   return (
     <section className="notice-card info" style={{ display: "block" }}>
@@ -1495,9 +1687,18 @@ function SupplierNotificationCenter({
           </div>
         </div>
 
-        <span className="status-badge">
-          {notifications.length} aviso(s)
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span className="status-badge">
+            {notifications.length} aviso(s)
+          </span>
+          <button
+            type="button"
+            className="secondary-button small-button"
+            onClick={onClose}
+          >
+            Fechar
+          </button>
+        </div>
       </div>
 
       <div
@@ -1554,7 +1755,10 @@ function SupplierNotificationCenter({
                 border: "1px solid var(--viz-border, #ddd)",
                 background: "transparent",
               }}
-              onClick={() => onOpenCompany(notification.company)}
+              onClick={() => {
+                onClose?.();
+                onOpenCompany(notification.company);
+              }}
             >
               <div>
                 <strong>{notification.title}</strong>
@@ -2230,6 +2434,9 @@ function SupplierCompanyPage({
       return;
     }
 
+    const wasCorrection =
+      company.submission_status === "rejected";
+
     const {
       data,
       error,
@@ -2258,6 +2465,11 @@ function SupplierCompanyPage({
     Object.assign(
       company,
       data
+    );
+
+    await recordAdminActivity(
+      wasCorrection ? "correction" : "submission",
+      company.id
     );
 
     setMessage(
@@ -3233,6 +3445,13 @@ function AdminDashboard({
   const [showCreateAdmin, setShowCreateAdmin] =
     useState(false);
 
+  const [companyFilter, setCompanyFilter] =
+    useState("all");
+  const [showAdminNotifications, setShowAdminNotifications] =
+    useState(false);
+  const [adminNotificationCount, setAdminNotificationCount] =
+    useState(0);
+
   const canManageUsers =
     adminCanManageUsers(
       adminProfile
@@ -3297,6 +3516,21 @@ function AdminDashboard({
     adminProfile?.admin_can_manage_users,
   ]);
 
+  const companiesInApproval = companies.filter(
+    (company) => company.submission_status !== "approved"
+  );
+
+  const homologatedCompanies = companies.filter(
+    (company) => company.submission_status === "approved"
+  );
+
+  const visibleCompanies =
+    companyFilter === "pending"
+      ? companiesInApproval
+      : companyFilter === "approved"
+      ? homologatedCompanies
+      : companies;
+
   async function exportExcel() {
     if (!companies.length)
       return;
@@ -3310,13 +3544,13 @@ function AdminDashboard({
             company.id
         );
 
-      const ownerIds = [
+      const profileIds = [
         ...new Set(
           companies
-            .map(
-              (company) =>
-                company.owner_id
-            )
+            .flatMap((company) => [
+              company.owner_id,
+              company.reviewed_by,
+            ])
             .filter(Boolean)
         ),
       ];
@@ -3346,7 +3580,7 @@ function AdminDashboard({
           )
           .in(
             "id",
-            ownerIds
+            profileIds
           ),
       ]);
 
@@ -3447,6 +3681,13 @@ function AdminDashboard({
                     10
                   )
                 ),
+
+              "Aprovado por":
+                company.submission_status === "approved"
+                  ? profilesById[company.reviewed_by]?.full_name ||
+                    profilesById[company.reviewed_by]?.email ||
+                    ""
+                  : "",
 
               "Observação geral":
                 company.review_notes ||
@@ -3558,6 +3799,15 @@ function AdminDashboard({
                       ? "Não possuímos essa documentação"
                       : "";
 
+                  row[
+                    `${item.label} - Aprovado por`
+                  ] =
+                    document?.review_status === "approved"
+                      ? profilesById[document.reviewed_by]?.full_name ||
+                        profilesById[document.reviewed_by]?.email ||
+                        ""
+                      : "";
+
                   return;
                 }
 
@@ -3574,8 +3824,10 @@ function AdminDashboard({
                 row[
                   `${item.label} - Data de vencimento`
                 ] =
-                  getDocumentExpiryType(document) ===
-                  "definitive"
+                  !item.expires
+                    ? ""
+                    : getDocumentExpiryType(document) ===
+                    "definitive"
                     ? "Licença definitiva"
                     : formatDate(
                         document?.expiry_date
@@ -3601,6 +3853,15 @@ function AdminDashboard({
                 ] =
                   document?.review_notes ||
                   "";
+
+                row[
+                  `${item.label} - Aprovado por`
+                ] =
+                  document?.review_status === "approved"
+                    ? profilesById[document.reviewed_by]?.full_name ||
+                      profilesById[document.reviewed_by]?.email ||
+                      ""
+                    : "";
               }
             );
 
@@ -3623,6 +3884,7 @@ function AdminDashboard({
         { wch: 15 },
         { wch: 15 },
         { wch: 35 },
+        { wch: 28 },
 
         ...DOCUMENTS.flatMap(
           (item) =>
@@ -3633,12 +3895,14 @@ function AdminDashboard({
                   { wch: 45 },
                   { wch: 35 },
                   { wch: 70 },
+                  { wch: 28 },
                 ]
               : [
                   { wch: 35 },
                   { wch: 20 },
                   { wch: 24 },
                   { wch: 35 },
+                  { wch: 28 },
                 ]
         ),
       ];
@@ -3686,6 +3950,24 @@ function AdminDashboard({
         </div>
 
         <div className="dashboard-actions">
+          <button
+            type="button"
+            className="notification-bell admin-notification-bell"
+            aria-label="Abrir notificações administrativas"
+            title="Notificações"
+            onClick={() => {
+              setShowAdminNotifications(true);
+              setAdminNotificationCount(0);
+            }}
+          >
+            <Bell size={22} />
+            {adminNotificationCount > 0 && (
+              <span className="notification-count">
+                {adminNotificationCount > 99 ? "99+" : adminNotificationCount}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             className="secondary-button"
@@ -3752,6 +4034,15 @@ function AdminDashboard({
           </div>
         )}
 
+      <AdminActivityNotificationCenter
+        session={session}
+        isOpen={showAdminNotifications}
+        onOpen={() => setShowAdminNotifications(true)}
+        onClose={() => setShowAdminNotifications(false)}
+        onCountChange={setAdminNotificationCount}
+        onOpenCompany={onOpenCompany}
+      />
+
       {message && (
         <div className="form-message error">
           {message}
@@ -3766,8 +4057,7 @@ function AdminDashboard({
           />
           Carregando empresas...
         </div>
-      ) : companies.length ===
-        0 ? (
+      ) : companies.length === 0 ? (
         <div className="empty-state">
           <ClipboardCheck size={38} />
 
@@ -3781,61 +4071,52 @@ function AdminDashboard({
           </p>
         </div>
       ) : (
-        <div className="company-grid">
-          {companies.map(
-            (company) => (
-              <button
-                type="button"
-                key={company.id}
-                className="company-card company-card-main admin-company-card"
-                onClick={() =>
-                  onOpenCompany(
-                    company
-                  )
-                }
-              >
-                <div className="company-icon">
-                  <FileCheck2 size={23} />
-                </div>
+        <>
+          <div className="admin-filter-bar">
+            <button
+              type="button"
+              className={companyFilter === "all" ? "primary-button small-button" : "secondary-button small-button"}
+              onClick={() => setCompanyFilter("all")}
+            >
+              Todos ({companies.length})
+            </button>
+            <button
+              type="button"
+              className={companyFilter === "pending" ? "primary-button small-button" : "secondary-button small-button"}
+              onClick={() => setCompanyFilter("pending")}
+            >
+              Em aprovação ({companiesInApproval.length})
+            </button>
+            <button
+              type="button"
+              className={companyFilter === "approved" ? "primary-button small-button" : "secondary-button small-button"}
+              onClick={() => setCompanyFilter("approved")}
+            >
+              Homologados ({homologatedCompanies.length})
+            </button>
+          </div>
 
-                <div className="company-content">
-                  <h2>
-                    {
-                      company.legal_name
-                    }
-                  </h2>
-
-                  <p>
-                    {formatCnpj(
-                      company.cnpj
-                    )}
-                  </p>
-
-                  <div className="company-modality">
-                    {company.modality ||
-                      "Serviço/atividade não informado"}
-                  </div>
-
-                  <div className="company-card-status">
-                    <StatusBadge
-                      status={
-                        company.submission_status
-                      }
-                      label={getCompanyStatusLabel(
-                        company.submission_status
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <ChevronRight
-                  size={20}
-                  className="company-arrow"
-                />
-              </button>
-            )
+          {companyFilter === "all" ? (
+            <>
+              <AdminCompanySection
+                title="Em aprovação"
+                companies={companiesInApproval}
+                onOpenCompany={onOpenCompany}
+              />
+              <AdminCompanySection
+                title="Homologados"
+                companies={homologatedCompanies}
+                onOpenCompany={onOpenCompany}
+              />
+            </>
+          ) : (
+            <AdminCompanySection
+              title={companyFilter === "approved" ? "Homologados" : "Em aprovação"}
+              companies={visibleCompanies}
+              onOpenCompany={onOpenCompany}
+            />
           )}
-        </div>
+        </>
       )}
 
       {showCreateAdmin && (
@@ -3853,6 +4134,189 @@ function AdminDashboard({
         />
       )}
     </main>
+  );
+}
+
+function AdminCompanySection({
+  title,
+  companies,
+  onOpenCompany,
+}) {
+  return (
+    <section className="admin-company-section">
+      <div className="admin-section-heading">
+        <div>
+          <div className="section-kicker">Administração</div>
+          <h2>{title}</h2>
+        </div>
+        <span className="status-badge">{companies.length}</span>
+      </div>
+
+      {companies.length === 0 ? (
+        <div className="empty-state compact-empty-state">
+          <p>Nenhuma empresa nesta categoria.</p>
+        </div>
+      ) : (
+        <div className="company-grid">
+          {companies.map((company) => (
+            <button
+              type="button"
+              key={company.id}
+              className="company-card company-card-main admin-company-card"
+              onClick={() => onOpenCompany(company)}
+            >
+              <div className="company-icon">
+                <FileCheck2 size={23} />
+              </div>
+
+              <div className="company-content">
+                <h2>{company.legal_name}</h2>
+                <p>{formatCnpj(company.cnpj)}</p>
+                <div className="company-modality">
+                  {company.modality || "Serviço/atividade não informado"}
+                </div>
+                <div className="company-card-status">
+                  <StatusBadge
+                    status={company.submission_status}
+                    label={getCompanyStatusLabel(company.submission_status)}
+                  />
+                </div>
+              </div>
+
+              <ChevronRight size={20} className="company-arrow" />
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AdminActivityNotificationCenter({
+  session,
+  isOpen,
+  onOpen,
+  onClose,
+  onCountChange,
+  onOpenCompany,
+}) {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  async function loadNotifications() {
+    if (!session?.user?.id) return;
+
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("admin_notifications")
+      .select("*")
+      .eq("recipient_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error(error);
+      setLoading(false);
+      return;
+    }
+
+    setNotifications(data || []);
+    onCountChange?.((data || []).filter((item) => !item.read_at).length);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    loadNotifications();
+
+    const timer = window.setInterval(loadNotifications, 30000);
+    return () => window.clearInterval(timer);
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !session?.user?.id) return;
+
+    async function markAsRead() {
+      const unreadIds = notifications
+        .filter((item) => !item.read_at)
+        .map((item) => item.id);
+
+      if (!unreadIds.length) return;
+
+      const { error } = await supabase
+        .from("admin_notifications")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", unreadIds)
+        .eq("recipient_id", session.user.id);
+
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      setNotifications((current) =>
+        current.map((item) =>
+          unreadIds.includes(item.id)
+            ? { ...item, read_at: new Date().toISOString() }
+            : item
+        )
+      );
+      onCountChange?.(0);
+    }
+
+    markAsRead();
+  }, [isOpen, notifications.length, session?.user?.id]);
+
+  if (!isOpen) return null;
+
+  return (
+    <section className="notice-card info admin-notification-center">
+      <div className="admin-notification-header">
+        <div>
+          <strong>Notificações</strong>
+          <p>Movimentações recentes da homologação.</p>
+        </div>
+        <button
+          type="button"
+          className="text-button"
+          onClick={onClose}
+        >
+          Fechar
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="loading-box compact-loading">
+          <RefreshCw size={18} className="spin" />
+          Carregando notificações...
+        </div>
+      ) : notifications.length === 0 ? (
+        <div className="compact-empty-state">
+          <p>Nenhuma notificação.</p>
+        </div>
+      ) : (
+        <div className="admin-notification-list">
+          {notifications.map((notification) => (
+            <button
+              type="button"
+              className="admin-notification-item"
+              key={notification.id}
+              onClick={() => {
+                onClose();
+              }}
+            >
+              <Bell size={17} />
+              <span>
+                <strong>{notification.message}</strong>
+                <small>
+                  {new Date(notification.created_at).toLocaleString("pt-BR")}
+                </small>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -4059,6 +4523,32 @@ function CreateAdminForm({
   );
 }
 
+function AdminReviewerName({ profileId }) {
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      if (!profileId) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, email")
+        .eq("id", profileId)
+        .maybeSingle();
+
+      if (active) {
+        setName(data?.full_name || data?.email || "Usuário");
+      }
+    }
+
+    load();
+    return () => { active = false; };
+  }, [profileId]);
+
+  return <>{name || "Usuário"}</>;
+}
+
 function AdminCompanyPage({
   session,
   company,
@@ -4238,6 +4728,13 @@ function AdminCompanyPage({
       data
     );
 
+    if (status === "approved") {
+      await recordAdminActivity(
+        "approval",
+        company.id
+      );
+    }
+
     setSavingCompany(
       false
     );
@@ -4285,6 +4782,12 @@ function AdminCompanyPage({
             Serviço/atividade:{" "}
             {company.modality ||
               "Não informado"}
+            {company.submission_status === "approved" && company.reviewed_by && (
+              <>
+                <br />
+                Aprovado por: <AdminReviewerName profileId={company.reviewed_by} />
+              </>
+            )}
           </p>
         </div>
 
@@ -4932,16 +5435,24 @@ function AdminFileItem({
 
   return (
     <>
-      <div className="selected-file">
+      <div
+        className="selected-file"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+        }}
+      >
         <FileText size={16} />
 
-        <span>
+        <span style={{ minWidth: 0, flex: 1 }}>
           {file.name}
         </span>
 
         <button
           type="button"
           className="secondary-button small-button"
+          style={{ marginLeft: "auto", flexShrink: 0 }}
           onClick={openFile}
           disabled={loading}
         >
@@ -5059,4 +5570,5 @@ function StatusBadge({
     </span>
   );
 }
+
 export default App;
