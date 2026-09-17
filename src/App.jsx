@@ -2043,7 +2043,7 @@ function SupplierCompanyPage({
 
     const updateData = {
       company_id: company.id,
-      type: payload.type,
+      type: type,
 
       file_path:
         firstFile?.path || null,
