@@ -3492,7 +3492,6 @@ function AdminDashboard({
                       : "";
 
                   row[
-                  row[
                     `${item.label} - Data de vencimento`
                   ] =
                     otherFiles.length
