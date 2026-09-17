@@ -2043,7 +2043,7 @@ function SupplierCompanyPage({
 
     const updateData = {
       company_id: company.id,
-      type: type,
+      type: payload.type,
 
       file_path:
         firstFile?.path || null,
@@ -2260,6 +2260,7 @@ function SupplierCompanyPage({
 
         await saveDocument({
           ...data,
+          type,
           files:
             cleanedFiles,
           not_available:
@@ -2291,6 +2292,7 @@ function SupplierCompanyPage({
 
       await saveDocument({
         ...data,
+        type,
         files,
       });
     } catch (error) {
@@ -2508,6 +2510,10 @@ function SupplierCompanyPage({
     );
 
     setSubmissionLoading(false);
+
+    setTimeout(() => {
+      onBack();
+    }, 700);
 
     setTimeout(() => {
       onBack();
