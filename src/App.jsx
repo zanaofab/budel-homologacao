@@ -406,6 +406,8 @@ function App() {
 
   const [page, setPage] = useState("home");
   const [selectedCompany, setSelectedCompany] = useState(null);
+  const [supplierNotificationsOpen, setSupplierNotificationsOpen] = useState(false);
+  const [supplierNotificationCount, setSupplierNotificationCount] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -548,6 +550,22 @@ function App() {
           background: #f7f8fa;
         }
 
+        .header-notification-bell {
+          flex: 0 0 auto;
+        }
+
+        .notification-popover {
+          position: absolute;
+          top: 86px;
+          right: 0;
+          width: min(460px, calc(100vw - 32px));
+          max-height: 70vh;
+          overflow: auto;
+          z-index: 20;
+          margin: 0 !important;
+          box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+        }
+
         .notification-count {
           position: absolute;
           top: -7px;
@@ -643,6 +661,10 @@ function App() {
         .admin-notification-bell {
           flex: 0 0 auto;
         }
+
+        .page {
+          position: relative;
+        }
       `}</style>
 
       <Header
@@ -652,7 +674,15 @@ function App() {
         onLogin={() => setPage("login")}
         onSignOut={handleSignOut}
         onAdmin={() => setPage("admin")}
-        onSupplier={() => setPage("supplier")}
+        onSupplier={() => {
+          setPage("supplier");
+          setSupplierNotificationsOpen(false);
+        }}
+        supplierNotificationCount={supplierNotificationCount}
+        onOpenSupplierNotifications={() => {
+          setPage("supplier");
+          setSupplierNotificationsOpen(true);
+        }}
       />
 
       {page === "home" && (
@@ -706,6 +736,10 @@ function App() {
           <SupplierDashboard
             session={session}
             profile={profile}
+            notificationsOpen={supplierNotificationsOpen}
+            onNotificationsOpen={() => setSupplierNotificationsOpen(true)}
+            onNotificationsClose={() => setSupplierNotificationsOpen(false)}
+            onNotificationCountChange={setSupplierNotificationCount}
             onOpenCompany={(company) => {
               setSelectedCompany(company);
               setPage("company");
@@ -765,6 +799,8 @@ function Header({
   onSignOut,
   onAdmin,
   onSupplier,
+  supplierNotificationCount,
+  onOpenSupplierNotifications,
 }) {
   return (
     <header className="site-header">
@@ -796,14 +832,31 @@ function Header({
 
           {session &&
             profile?.role !== "admin" && (
-              <button
-                type="button"
-                className="header-link"
-                onClick={onSupplier}
-              >
-                <FolderOpen size={16} />
-                Meus CNPJs
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="notification-bell header-notification-bell"
+                  aria-label="Abrir notificações"
+                  title="Notificações"
+                  onClick={onOpenSupplierNotifications}
+                >
+                  <Bell size={20} />
+                  {supplierNotificationCount > 0 && (
+                    <span className="notification-count">
+                      {supplierNotificationCount > 99 ? "99+" : supplierNotificationCount}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className="header-link"
+                  onClick={onSupplier}
+                >
+                  <FolderOpen size={16} />
+                  Meus CNPJs
+                </button>
+              </>
             )}
 
           {!session ? (
@@ -1213,6 +1266,10 @@ function SupplierDashboard({
   session,
   profile,
   onOpenCompany,
+  notificationsOpen,
+  onNotificationsOpen,
+  onNotificationsClose,
+  onNotificationCountChange,
 }) {
   const [companies, setCompanies] =
     useState([]);
@@ -1222,11 +1279,6 @@ function SupplierDashboard({
     useState(false);
   const [message, setMessage] =
     useState("");
-
-  const [showNotifications, setShowNotifications] =
-    useState(false);
-  const [notificationCount, setNotificationCount] =
-    useState(0);
 
   async function loadCompanies() {
     setLoading(true);
@@ -1286,25 +1338,6 @@ function SupplierDashboard({
           <div className="supplier-page-title">
             <h1>Meus CNPJs</h1>
 
-            {companies.length > 0 && (
-              <button
-                type="button"
-                className="notification-bell"
-                aria-label="Abrir notificações"
-                title="Notificações"
-                onClick={() => {
-                  setShowNotifications(true);
-                  setNotificationCount(0);
-                }}
-              >
-                <Bell size={22} />
-                {notificationCount > 0 && (
-                  <span className="notification-count">
-                    {notificationCount > 99 ? "99+" : notificationCount}
-                  </span>
-                )}
-              </button>
-            )}
           </div>
 
           <p>
@@ -1336,14 +1369,11 @@ function SupplierDashboard({
         <SupplierNotificationCenter
           session={session}
           companies={companies}
-          isOpen={showNotifications}
+          isOpen={notificationsOpen}
+          onOpen={onNotificationsOpen}
           onOpenCompany={onOpenCompany}
-          onCountChange={(count) => {
-            if (!showNotifications) {
-              setNotificationCount(count);
-            }
-          }}
-          onClose={() => setShowNotifications(false)}
+          onCountChange={onNotificationCountChange}
+          onClose={onNotificationsClose}
         />
       )}
 
@@ -1469,6 +1499,7 @@ function SupplierNotificationCenter({
   onOpenCompany,
   onCountChange,
   onClose,
+  onOpen,
   isOpen,
 }) {
   const [notifications, setNotifications] = useState([]);
@@ -4270,7 +4301,7 @@ function AdminActivityNotificationCenter({
   if (!isOpen) return null;
 
   return (
-    <section className="notice-card info admin-notification-center">
+    <section className="notice-card info admin-notification-center notification-popover">
       <div className="admin-notification-header">
         <div>
           <strong>Notificações</strong>
