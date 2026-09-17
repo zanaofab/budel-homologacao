@@ -399,15 +399,42 @@ function getDocumentExpiryStatus(document) {
   return null;
 }
 
+const NAVIGATION_STORAGE_KEY = "budel_navigation";
+
+function readSavedNavigation() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(NAVIGATION_STORAGE_KEY) || "null");
+    if (!saved || typeof saved !== "object") return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function saveNavigation(page, companyId = null) {
+  try {
+    localStorage.setItem(
+      NAVIGATION_STORAGE_KEY,
+      JSON.stringify({ page, companyId })
+    );
+  } catch {
+    // Se o navegador bloquear o armazenamento, a navegação continua normalmente.
+  }
+}
+
 function App() {
+  const savedNavigation = readSavedNavigation();
+
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(savedNavigation?.page || "home");
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [supplierNotificationsOpen, setSupplierNotificationsOpen] = useState(false);
   const [supplierNotificationCount, setSupplierNotificationCount] = useState(0);
+  const [adminNotificationsOpen, setAdminNotificationsOpen] = useState(false);
+  const [adminNotificationCount, setAdminNotificationCount] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -467,11 +494,42 @@ function App() {
 
     setProfile(data);
 
-    if (data?.role === "admin") {
-      setPage("admin");
-    } else {
-      setPage("supplier");
+    const saved = readSavedNavigation();
+    const isAdmin = data?.role === "admin";
+    const savedCompanyPage =
+      saved?.page === (isAdmin ? "admin-company" : "company") &&
+      saved?.companyId;
+
+    if (savedCompanyPage) {
+      const { data: savedCompany, error: companyError } = await supabase
+        .from("companies")
+        .select("*")
+        .eq("id", saved.companyId)
+        .maybeSingle();
+
+      if (!companyError && savedCompany) {
+        if (!isAdmin && savedCompany.owner_id !== userId) {
+          saveNavigation("supplier", null);
+          setPage("supplier");
+          return;
+        }
+
+        setSelectedCompany(savedCompany);
+        setPage(saved.page);
+        return;
+      }
     }
+
+    const defaultPage = isAdmin ? "admin" : "supplier";
+    setSelectedCompany(null);
+    setPage(defaultPage);
+    saveNavigation(defaultPage, null);
+  }
+
+  function navigateTo(nextPage, company = null) {
+    setSelectedCompany(company);
+    setPage(nextPage);
+    saveNavigation(nextPage, company?.id || null);
   }
 
   async function handleSignOut() {
@@ -479,6 +537,7 @@ function App() {
 
     setSelectedCompany(null);
     setPage("home");
+    saveNavigation("home", null);
   }
 
   if (loading) {
@@ -555,9 +614,9 @@ function App() {
         }
 
         .notification-popover {
-          position: absolute;
-          top: 86px;
-          right: 0;
+          position: fixed;
+          top: 76px;
+          right: 24px;
           width: min(460px, calc(100vw - 32px));
           max-height: 70vh;
           overflow: auto;
@@ -658,30 +717,40 @@ function App() {
           color: #6b7280;
         }
 
-        .admin-notification-bell {
-          flex: 0 0 auto;
-        }
-
         .page {
           position: relative;
+        }
+
+        @media (max-width: 640px) {
+          .notification-popover {
+            top: 70px;
+            right: 12px;
+            width: min(460px, calc(100vw - 24px));
+            max-height: 72vh;
+          }
         }
       `}</style>
 
       <Header
         session={session}
         profile={profile}
-        onHome={() => setPage("home")}
-        onLogin={() => setPage("login")}
+        onHome={() => navigateTo("home")}
+        onLogin={() => navigateTo("login")}
         onSignOut={handleSignOut}
-        onAdmin={() => setPage("admin")}
+        onAdmin={() => navigateTo("admin")}
         onSupplier={() => {
-          setPage("supplier");
+          navigateTo("supplier");
           setSupplierNotificationsOpen(false);
         }}
         supplierNotificationCount={supplierNotificationCount}
         onOpenSupplierNotifications={() => {
-          setPage("supplier");
+          navigateTo("supplier");
           setSupplierNotificationsOpen(true);
+        }}
+        adminNotificationCount={adminNotificationCount}
+        onOpenAdminNotifications={() => {
+          navigateTo("admin");
+          setAdminNotificationsOpen(true);
         }}
       />
 
@@ -691,13 +760,13 @@ function App() {
           profile={profile}
           onStart={() => {
             if (session) {
-              setPage(
+              navigateTo(
                 profile?.role === "admin"
                   ? "admin"
                   : "supplier"
               );
             } else {
-              setPage("login");
+              navigateTo("login");
             }
           }}
         />
@@ -718,15 +787,15 @@ function App() {
               );
             }
           }}
-          onSignup={() => setPage("signup")}
-          onBack={() => setPage("home")}
+          onSignup={() => navigateTo("signup")}
+          onBack={() => navigateTo("home")}
         />
       )}
 
       {page === "signup" && (
         <SignupPage
-          onBack={() => setPage("login")}
-          onSuccess={() => setPage("login")}
+          onBack={() => navigateTo("login")}
+          onSuccess={() => navigateTo("login")}
         />
       )}
 
@@ -741,8 +810,7 @@ function App() {
             onNotificationsClose={() => setSupplierNotificationsOpen(false)}
             onNotificationCountChange={setSupplierNotificationCount}
             onOpenCompany={(company) => {
-              setSelectedCompany(company);
-              setPage("company");
+              navigateTo("company", company);
             }}
           />
         )}
@@ -754,8 +822,7 @@ function App() {
             session={session}
             company={selectedCompany}
             onBack={() => {
-              setSelectedCompany(null);
-              setPage("supplier");
+              navigateTo("supplier");
             }}
           />
         )}
@@ -766,9 +833,12 @@ function App() {
           <AdminDashboard
             session={session}
             adminProfile={profile}
+            notificationsOpen={adminNotificationsOpen}
+            onNotificationsOpen={() => setAdminNotificationsOpen(true)}
+            onNotificationsClose={() => setAdminNotificationsOpen(false)}
+            onNotificationCountChange={setAdminNotificationCount}
             onOpenCompany={(company) => {
-              setSelectedCompany(company);
-              setPage("admin-company");
+              navigateTo("admin-company", company);
             }}
           />
         )}
@@ -782,8 +852,7 @@ function App() {
             company={selectedCompany}
             adminProfile={profile}
             onBack={() => {
-              setSelectedCompany(null);
-              setPage("admin");
+              navigateTo("admin");
             }}
           />
         )}
@@ -801,6 +870,8 @@ function Header({
   onSupplier,
   supplierNotificationCount,
   onOpenSupplierNotifications,
+  adminNotificationCount,
+  onOpenAdminNotifications,
 }) {
   return (
     <header className="site-header">
@@ -820,14 +891,31 @@ function Header({
         <div className="header-actions">
           {session &&
             profile?.role === "admin" && (
-              <button
-                type="button"
-                className="header-link"
-                onClick={onAdmin}
-              >
-                <ShieldCheck size={16} />
-                Administração
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="notification-bell header-notification-bell"
+                  aria-label="Abrir notificações administrativas"
+                  title="Notificações"
+                  onClick={onOpenAdminNotifications}
+                >
+                  <Bell size={20} />
+                  {adminNotificationCount > 0 && (
+                    <span className="notification-count">
+                      {adminNotificationCount > 99 ? "99+" : adminNotificationCount}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  className="header-link"
+                  onClick={onAdmin}
+                >
+                  <ShieldCheck size={16} />
+                  Administração
+                </button>
+              </>
             )}
 
           {session &&
@@ -1504,7 +1592,6 @@ function SupplierNotificationCenter({
 }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
 
   useEffect(() => {
     let active = true;
@@ -1679,7 +1766,11 @@ function SupplierNotificationCenter({
       });
 
       setNotifications(items);
-      onCountChange?.(items.length);
+      // Se a caixinha já estiver aberta, as notificações já foram visualizadas.
+      // O contador só aparece novamente quando a caixinha estiver fechada e houver novos avisos.
+      if (!isOpen) {
+        onCountChange?.(items.length);
+      }
       setLoading(false);
     }
 
@@ -1688,17 +1779,20 @@ function SupplierNotificationCenter({
     return () => {
       active = false;
     };
-  }, [companies]);
+  }, [companies, isOpen]);
 
-  const visibleNotifications =
-    filter === "all"
-      ? notifications
-      : notifications.filter((item) => item.type === filter);
+  useEffect(() => {
+    if (isOpen) {
+      onCountChange?.(0);
+    }
+  }, [isOpen]);
+
+  const visibleNotifications = notifications;
 
   if (!isOpen) return null;
 
   return (
-    <section className="notice-card info" style={{ display: "block" }}>
+    <section className="notice-card info notification-popover supplier-notification-popover" style={{ display: "block" }}>
       <div
         style={{
           display: "flex",
@@ -1713,7 +1807,7 @@ function SupplierNotificationCenter({
           <div>
             <strong>Central de notificações</strong>
             <p style={{ marginBottom: 0 }}>
-              Acompanhe documentos vencendo, aprovados, rejeitados e pendentes.
+              Todas as atualizações dos seus CNPJs em um só lugar.
             </p>
           </div>
         </div>
@@ -1730,32 +1824,6 @@ function SupplierNotificationCenter({
             Fechar
           </button>
         </div>
-      </div>
-
-      <div
-        className="document-validity-options"
-        style={{ marginTop: "16px" }}
-      >
-        {[
-          ["all", "Todos"],
-          ["expiry", "Vencimentos"],
-          ["approved", "Aprovados"],
-          ["rejected", "Rejeitados"],
-          ["pending", "Pendentes"],
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={
-              filter === value
-                ? "primary-button small-button"
-                : "secondary-button small-button"
-            }
-            onClick={() => setFilter(value)}
-          >
-            {label}
-          </button>
-        ))}
       </div>
 
       {loading ? (
@@ -2514,10 +2582,6 @@ function SupplierCompanyPage({
     setTimeout(() => {
       onBack();
     }, 700);
-
-    setTimeout(() => {
-      onBack();
-    }, 900);
   }
 
   return (
@@ -3475,6 +3539,10 @@ function SupplierDocumentCard({
 function AdminDashboard({
   session,
   adminProfile,
+  notificationsOpen,
+  onNotificationsOpen,
+  onNotificationsClose,
+  onNotificationCountChange,
   onOpenCompany,
 }) {
   const [companies, setCompanies] =
@@ -3488,10 +3556,6 @@ function AdminDashboard({
 
   const [companyFilter, setCompanyFilter] =
     useState("all");
-  const [showAdminNotifications, setShowAdminNotifications] =
-    useState(false);
-  const [adminNotificationCount, setAdminNotificationCount] =
-    useState(0);
 
   const canManageUsers =
     adminCanManageUsers(
@@ -3993,24 +4057,6 @@ function AdminDashboard({
         <div className="dashboard-actions">
           <button
             type="button"
-            className="notification-bell admin-notification-bell"
-            aria-label="Abrir notificações administrativas"
-            title="Notificações"
-            onClick={() => {
-              setShowAdminNotifications(true);
-              setAdminNotificationCount(0);
-            }}
-          >
-            <Bell size={22} />
-            {adminNotificationCount > 0 && (
-              <span className="notification-count">
-                {adminNotificationCount > 99 ? "99+" : adminNotificationCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
             className="secondary-button"
             onClick={
               exportExcel
@@ -4077,10 +4123,10 @@ function AdminDashboard({
 
       <AdminActivityNotificationCenter
         session={session}
-        isOpen={showAdminNotifications}
-        onOpen={() => setShowAdminNotifications(true)}
-        onClose={() => setShowAdminNotifications(false)}
-        onCountChange={setAdminNotificationCount}
+        isOpen={notificationsOpen}
+        onOpen={onNotificationsOpen}
+        onClose={onNotificationsClose}
+        onCountChange={onNotificationCountChange}
         onOpenCompany={onOpenCompany}
       />
 
